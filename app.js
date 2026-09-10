@@ -45,42 +45,35 @@ function cleanLabel(label) {
   return label.replace(/<br\s*\/?\s*>/gi, '\n').replace(/<[^>]*>/g, '').replace(/"/g, '"').replace(/&#039;/g, "'");
 }
 
-function isDecisionLabel(label) {
-  return label.trim().startsWith('SIM -->') || label.trim().startsWith('NÃO -->') || label.trim().startsWith('NAO -->');
+function cleanDecisionLabel(label) {
+  const trimmed = label.trim();
+  if (trimmed.startsWith('SIM -->')) return trimmed.substring(7).trim();
+  if (trimmed.startsWith('NÃO -->')) return trimmed.substring(8).trim();
+  if (trimmed.startsWith('NAO -->')) return trimmed.substring(8).trim();
+  return label;
 }
 
-function extractDecisionInfo(label) {
+function getEdgeLabel(label) {
   const trimmed = label.trim();
-  if (trimmed.startsWith('SIM -->')) return { type: 'sim', label: trimmed.substring(7).trim() };
-  if (trimmed.startsWith('NÃO -->')) return { type: 'nao', label: trimmed.substring(8).trim() };
-  if (trimmed.startsWith('NAO -->')) return { type: 'nao', label: trimmed.substring(8).trim() };
-  return null;
+  if (trimmed.startsWith('SIM -->')) return 'Sim';
+  if (trimmed.startsWith('NÃO -->')) return 'Não';
+  if (trimmed.startsWith('NAO -->')) return 'Não';
+  return '';
 }
 
 function makeGraph(rows) {
   const nodes = rows
-    .filter(row => row.id && row.fluxo && !isDecisionLabel(row.fluxo))
-    .map(row => ({ id: row.id, label: cleanLabel(row.fluxo), row }));
+    .filter(row => row.id && row.fluxo)
+    .map(row => ({ id: row.id, label: cleanLabel(cleanDecisionLabel(row.fluxo)), row }));
 
   const ids = new Set(nodes.map(node => node.id));
   const edges = [];
 
-  const decisionRows = rows.filter(row => row.id && row.fluxo && isDecisionLabel(row.fluxo));
-
   nodes.forEach(node => {
     const from = node.row.pai;
     if (from && ids.has(from)) {
-      edges.push({ from, to: node.id, label: '' });
-    }
-  });
-
-  decisionRows.forEach(decisionRow => {
-    const decisionInfo = extractDecisionInfo(decisionRow.fluxo);
-    if (!decisionInfo) return;
-
-    const parentId = decisionRow.pai;
-    if (parentId && ids.has(parentId)) {
-      edges.push({ from: parentId, to: decisionRow.id, label: decisionInfo.type === 'sim' ? 'Sim' : 'Não' });
+      const label = getEdgeLabel(node.row.fluxo);
+      edges.push({ from, to: node.id, label });
     }
   });
 
