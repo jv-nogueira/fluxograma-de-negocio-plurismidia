@@ -1,4 +1,6 @@
-const DEFAULT_URL = document.querySelector('#csvUrl').value;
+const IDEAL_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRPWNQ7rwTUNBgDEZjpcZXORDDaWnMXDzGM0udZCS2wPdD-PM_-FqhcvB2z1DduIVh43JBStqGmy5Lc/pub?gid=0&single=true&output=csv';
+const ATUAL_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRPWNQ7rwTUNBgDEZjpcZXORDDaWnMXDzGM0udZCS2wPdD-PM_-FqhcvB2z1DduIVh43JBStqGmy5Lc/pub?gid=1647146284&single=true&output=csv';
+
 const svg = document.querySelector('#diagram');
 const canvas = document.querySelector('#canvasWrap');
 const emptyState = document.querySelector('#emptyState');
@@ -9,9 +11,12 @@ const tooltip = document.querySelector('#tooltip');
 const details = document.querySelector('#details');
 let graph = { nodes: [], edges: [] };
 let view = { scale: 10, x: 0, y: 0 };
+let minZoom = 0.1;
 let drag = null;
+let pinch = null;
 let suppressNodeClick = false;
 let selectedNodeElement = null;
+let currentMode = 'atual';
 
 function showToast(message) {
   const toast = document.querySelector('#toast');
@@ -81,13 +86,18 @@ function makeGraph(rows) {
 }
 
 function textLines(text, maxChars = 31) {
-  const words = text.split(/\s+/);
-  const lines = []; let line = '';
-  words.forEach(word => {
-    if ((line + ' ' + word).trim().length > maxChars && line) { lines.push(line); line = word; }
-    else line = (line + ' ' + word).trim();
+  const explicitLines = text.split('\n');
+  const lines = [];
+  explicitLines.forEach(explicitLine => {
+    const words = explicitLine.split(/\s+/);
+    let line = '';
+    words.forEach(word => {
+      if ((line + ' ' + word).trim().length > maxChars && line) { lines.push(line); line = word; }
+      else line = (line + ' ' + word).trim();
+    });
+    if (line) lines.push(line);
+    else lines.push('');
   });
-  if (line) lines.push(line);
   return lines.slice(0, 7);
 }
 
@@ -123,32 +133,388 @@ function layoutGraph() {
   return positions;
 }
 
-function render() {
-  if (!graph.nodes.length) return; const positions = layoutGraph(); const all = [...positions.values()]; const minX = Math.min(...all.map(p => p.x - p.width / 2)) - 50; const maxX = Math.max(...all.map(p => p.x + p.width / 2)) + 50; const maxY = Math.max(...all.map(p => p.y + p.height)) + 80;
-  svg.setAttribute('viewBox', `${minX} -50 ${maxX - minX} ${maxY + 50}`); svg.innerHTML = `<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8c9991"/></marker></defs>`;
-  const edgeLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g'); const nodeLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g'); svg.append(edgeLayer, nodeLayer);
-  graph.edges.forEach(edge => { const from = positions.get(edge.from); const to = positions.get(edge.to); if (!from || !to) return; const startX = from.x, startY = from.y + from.height / 2; const endX = to.x, endY = to.y - to.height / 2; const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); path.setAttribute('class', 'edge'); path.setAttribute('marker-end', 'url(#arrow)'); path.setAttribute('d', `M ${startX} ${startY} C ${startX} ${startY + 45}, ${endX} ${endY - 45}, ${endX} ${endY}`); edgeLayer.append(path); if (edge.label) { const label = document.createElementNS('http://www.w3.org/2000/svg', 'text'); label.setAttribute('class', 'edge-label'); label.setAttribute('x', (startX + endX) / 2 + (startX < endX ? 10 : -28)); label.setAttribute('y', (startY + endY) / 2); label.setAttribute('text-anchor', startX < endX ? 'start' : 'end'); label.setAttribute('style', 'fill:#d4eaf2;font-weight:700;paint-order:stroke;stroke:#111416;stroke-width:5px;stroke-linejoin:round;'); label.textContent = edge.label; edgeLayer.append(label); } });
-  graph.nodes.forEach(node => { const p = positions.get(node.id); const group = document.createElementNS('http://www.w3.org/2000/svg', 'g'); const isCategory = node.id === '1' || graph.edges.some(edge => edge.from === '1' && edge.to === node.id); const hasDecisionPaths = graph.edges.some(edge => edge.from === node.id && edge.label); const type = isCategory ? 'root' : hasDecisionPaths ? 'action' : 'question'; group.setAttribute('class', `node ${type}`); group.dataset.id = node.id; group.setAttribute('transform', `translate(${p.x - p.width / 2}, ${p.y - p.height / 2})`); const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect'); rect.setAttribute('width', p.width); rect.setAttribute('height', p.height); rect.setAttribute('rx', 7); group.append(rect); p.lines.forEach((line, i) => { const text = document.createElementNS('http://www.w3.org/2000/svg', 'text'); text.setAttribute('x', p.width / 2); text.setAttribute('y', 21 + i * 16); text.setAttribute('text-anchor', 'middle'); text.textContent = line; group.append(text); }); group.addEventListener('click', () => { if (!suppressNodeClick) selectNode(node.id, group); suppressNodeClick = false; }); group.addEventListener('mouseenter', event => { tooltip.textContent = node.label; tooltip.style.display = 'block'; const ctm = group.getScreenCTM(); const scaledWidth = 238 * ctm.a; const scaledHeight = 54 * ctm.d; const gap = 4; const nodeRightEdge = ctm.e + scaledWidth; let left = nodeRightEdge + gap + 200 <= window.innerWidth ? nodeRightEdge + gap : ctm.e - 200 - gap; left = Math.max(4, Math.min(left, window.innerWidth - 200 - 4)); const nodeVerticalCenter = ctm.f + scaledHeight / 2; const tooltipHeight = 60; const idealTop = nodeVerticalCenter - tooltipHeight / 2; const top = Math.max(4, Math.min(idealTop, window.innerHeight - tooltipHeight - 4)); tooltip.style.left = `${left}px`; tooltip.style.top = `${top}px`; }); group.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; }); nodeLayer.append(group); }); applyTransform();
+function getCategoryBounds(positions) {
+  const categoryNodes = graph.nodes.filter(node => {
+    return node.id === '1' || graph.edges.some(edge => edge.from === '1' && edge.to === node.id);
+  });
+  if (categoryNodes.length === 0) return getContentBounds();
+  const catPositions = categoryNodes.map(node => positions.get(node.id)).filter(Boolean);
+  const minX = Math.min(...catPositions.map(p => p.x - p.width / 2)) - 50;
+  const maxX = Math.max(...catPositions.map(p => p.x + p.width / 2)) + 50;
+  const minY = Math.min(...catPositions.map(p => p.y - p.height / 2)) - 50;
+  const maxY = Math.max(...catPositions.map(p => p.y + p.height / 2)) + 50;
+  return { minX, maxX, minY, maxY, width: maxX - minX, height: maxY - minY };
 }
 
-function incomingFor(id) { return graph.edges.filter(edge => edge.to === id); }
+function getContentBounds() {
+  const positions = layoutGraph();
+  const all = [...positions.values()];
+  const minX = Math.min(...all.map(p => p.x - p.width / 2)) - 50;
+  const maxX = Math.max(...all.map(p => p.x + p.width / 2)) + 50;
+  const minY = -50;
+  const maxY = Math.max(...all.map(p => p.y + p.height)) + 80;
+  return { minX, maxX, minY, maxY, width: maxX - minX, height: maxY - minY };
+}
 
-function positionDetails() { if (!selectedNodeElement || !details.classList.contains('open')) return; const svg = document.querySelector('#diagram'); const canvasRect = svg.parentElement.getBoundingClientRect(); const ctm = selectedNodeElement.getScreenCTM(); const nodeWidth = 238; const nodeHeight = 54; const nodeRight = ctm.e + nodeWidth; const nodeTop = ctm.f; const panel = details.getBoundingClientRect(); const gap = 16; const left = nodeRight + gap + panel.width <= window.innerWidth ? nodeRight + gap : ctm.e - panel.width - gap; const top = Math.max(16, Math.min(nodeTop, window.innerHeight - panel.height - 16)); details.style.left = `${Math.max(16, Math.min(left, window.innerWidth - panel.width - 16))}px`; details.style.right = 'auto'; details.style.top = `${top}px`; }
+function fitToCategories() {
+  const canvasEl = document.querySelector('#canvasWrap');
+  const rect = canvasEl.getBoundingClientRect();
+  const positions = layoutGraph();
+  const rootPos = positions.get('1');
+  const fullBounds = getContentBounds();
+  const padding = 40;
+  const scaleX = (rect.width - padding * 2) / fullBounds.width;
+  const scaleY = (rect.height - padding * 2) / fullBounds.height;
+  minZoom = Math.min(scaleX, scaleY, 10);
+  const catBounds = getCategoryBounds(positions);
+  const catScaleX = (rect.width - padding * 2) / catBounds.width;
+  const catScaleY = (rect.height - padding * 2) / catBounds.height;
+  const catScale = Math.min(catScaleX, catScaleY, 10);
+  view.scale = Math.max(minZoom, catScale);
+  if (rootPos) {
+    view.x = rect.width / 2 - rootPos.x * view.scale;
+    view.y = rect.height / 2 - rootPos.y * view.scale;
+  } else {
+    view.x = rect.width / 2 - (fullBounds.minX + fullBounds.width / 2) * view.scale;
+    view.y = rect.height / 2 - (fullBounds.minY + fullBounds.height / 2) * view.scale;
+  }
+  svg.setAttribute('viewBox', `${fullBounds.minX} ${fullBounds.minY} ${fullBounds.width} ${fullBounds.height}`);
+  applyTransform();
+}
 
-function selectNode(id, element) { document.querySelectorAll('.node').forEach(node => node.classList.toggle('selected', node.dataset.id === id)); const node = graph.nodes.find(item => item.id === id); if (!node) return; selectedNodeElement = element; document.querySelector('#detailTitle').textContent = node.label.split('\n')[0]; document.querySelector('#detailBody').innerHTML = node.label.replace(/\n/g, '<br>'); const outgoing = graph.edges.filter(edge => edge.from === id); document.querySelector('#detailLinks').innerHTML = outgoing.length ? `<div class="path">Próximos caminhos<br>${outgoing.map(edge => `${escapeHtml(edge.label || 'Próximo')} → ${escapeHtml(graph.nodes.find(item => item.id === edge.to)?.label.split('\n')[0] || edge.to)}`).join('<br>')}</div>` : ''; details.classList.add('open'); positionDetails(); }
+function render() {
+  if (!graph.nodes.length) return;
+  const positions = layoutGraph();
+  const all = [...positions.values()];
+  const minX = Math.min(...all.map(p => p.x - p.width / 2)) - 50;
+  const maxX = Math.max(...all.map(p => p.x + p.width / 2)) + 50;
+  const maxY = Math.max(...all.map(p => p.y + p.height)) + 80;
+  svg.setAttribute('viewBox', `${minX} -50 ${maxX - minX} ${maxY + 50}`);
+  svg.innerHTML = `<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8c9991"/></marker></defs>`;
+  const edgeLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  const nodeLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  svg.append(edgeLayer, nodeLayer);
+  graph.edges.forEach(edge => {
+    const from = positions.get(edge.from);
+    const to = positions.get(edge.to);
+    if (!from || !to) return;
+    const startX = from.x, startY = from.y + from.height / 2;
+    const endX = to.x, endY = to.y - to.height / 2;
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('class', 'edge');
+    path.setAttribute('marker-end', 'url(#arrow)');
+    path.setAttribute('d', `M ${startX} ${startY} C ${startX} ${startY + 45}, ${endX} ${endY - 45}, ${endX} ${endY}`);
+    edgeLayer.append(path);
+    if (edge.label) {
+      const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      label.setAttribute('class', 'edge-label');
+      label.setAttribute('x', (startX + endX) / 2 + (startX < endX ? 10 : -28));
+      label.setAttribute('y', (startY + endY) / 2);
+      label.setAttribute('text-anchor', startX < endX ? 'start' : 'end');
+      label.setAttribute('style', 'fill:#d4eaf2;font-weight:700;paint-order:stroke;stroke:#111416;stroke-width:5px;stroke-linejoin:round;');
+      label.textContent = edge.label;
+      edgeLayer.append(label);
+    }
+  });
+  graph.nodes.forEach(node => {
+    const p = positions.get(node.id);
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    const isCategory = node.id === '1' || graph.edges.some(edge => edge.from === '1' && edge.to === node.id);
+    const hasDecisionPaths = graph.edges.some(edge => edge.from === node.id && edge.label);
+    const type = isCategory ? 'root' : hasDecisionPaths ? 'action' : 'question';
+    group.setAttribute('class', `node ${type}`);
+    group.dataset.id = node.id;
+    group.setAttribute('transform', `translate(${p.x - p.width / 2}, ${p.y - p.height / 2})`);
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('width', p.width);
+    rect.setAttribute('height', p.height);
+    rect.setAttribute('rx', 7);
+    group.append(rect);
+    p.lines.forEach((line, i) => {
+      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      text.setAttribute('x', p.width / 2);
+      text.setAttribute('y', 21 + i * 16);
+      text.setAttribute('text-anchor', 'middle');
+      text.textContent = line;
+      group.append(text);
+    });
+    group.addEventListener('click', () => { if (!suppressNodeClick) selectNode(node.id, group); suppressNodeClick = false; });
+    group.addEventListener('mouseenter', event => {
+      tooltip.textContent = node.label;
+      tooltip.style.display = 'block';
+      const ctm = group.getScreenCTM();
+      const scaledWidth = 238 * ctm.a;
+      const scaledHeight = 54 * ctm.d;
+      const gap = 4;
+      const nodeRightEdge = ctm.e + scaledWidth;
+      let left = nodeRightEdge + gap + 200 <= window.innerWidth ? nodeRightEdge + gap : ctm.e - 200 - gap;
+      left = Math.max(4, Math.min(left, window.innerWidth - 200 - 4));
+      const nodeVerticalCenter = ctm.f + scaledHeight / 2;
+      const tooltipHeight = 60;
+      const idealTop = nodeVerticalCenter - tooltipHeight / 2;
+      const top = Math.max(4, Math.min(idealTop, window.innerHeight - tooltipHeight - 4));
+      tooltip.style.left = `${left}px`;
+      tooltip.style.top = `${top}px`;
+    });
+    group.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+    nodeLayer.append(group);
+  });
+  applyTransform();
+}
 
-function applyTransform() { svg.style.transformOrigin = 'center center'; svg.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.scale})`; const label = document.querySelector('#zoomLabel'); if (!label.classList.contains('editing')) label.textContent = `${Math.round(view.scale * 100) / 10}%`; positionDetails(); }
+function positionDetails() {
+  if (!selectedNodeElement || !details.classList.contains('open')) return;
+  const ctm = selectedNodeElement.getScreenCTM();
+  const nodeWidth = 238;
+  const nodeHeight = 54;
+  const nodeRight = ctm.e + nodeWidth;
+  const nodeTop = ctm.f;
+  const panel = details.getBoundingClientRect();
+  const gap = 16;
+  const left = nodeRight + gap + panel.width <= window.innerWidth ? nodeRight + gap : ctm.e - panel.width - gap;
+  const top = Math.max(16, Math.min(nodeTop, window.innerHeight - panel.height - 16));
+  details.style.left = `${Math.max(16, Math.min(left, window.innerWidth - panel.width - 16))}px`;
+  details.style.right = 'auto';
+  details.style.top = `${top}px`;
+}
 
-function setZoom(next) { view.scale = Math.max(1, next); applyTransform(); }
+function selectNode(id, element) {
+  document.querySelectorAll('.node').forEach(node => node.classList.toggle('selected', node.dataset.id === id));
+  const node = graph.nodes.find(item => item.id === id);
+  if (!node) return;
+  selectedNodeElement = element;
+  document.querySelector('#detailTitle').textContent = node.label.split('\n')[0];
+  document.querySelector('#detailBody').innerHTML = node.label.replace(/\n/g, '<br>');
+  const outgoing = graph.edges.filter(edge => edge.from === id);
+  document.querySelector('#detailLinks').innerHTML = outgoing.length ? `<div class="path">Próximos caminhos<br>${outgoing.map(edge => `${escapeHtml(edge.label || 'Próximo')} → ${escapeHtml(graph.nodes.find(item => item.id === edge.to)?.label.split('\n')[0] || edge.to)}`).join('<br>')}</div>` : '';
+  details.classList.add('open');
+  positionDetails();
+}
 
-function setZoomCentered(next, cx, cy) { const canvasEl = document.querySelector('#canvasWrap'); const rect = canvasEl.getBoundingClientRect(); const centerX = cx ?? rect.width / 2; const centerY = cy ?? rect.height / 2; const scaleRatio = next / view.scale; view.x = centerX - (centerX - view.x) * scaleRatio; view.y = centerY - (centerY - view.y) * scaleRatio; view.scale = Math.max(1, next); applyTransform(); }
+function applyTransform() {
+  svg.style.transformOrigin = 'center center';
+  svg.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
+  const label = document.querySelector('#zoomLabel');
+  if (!label.classList.contains('editing')) label.textContent = `${Math.round(view.scale * 100) / 10}%`;
+  positionDetails();
+}
 
-function fit() { view = { scale: 10, x: 0, y: 0 }; applyTransform(); }
+function setZoom(next) {
+  view.scale = Math.max(minZoom, Math.min(next, 100));
+  applyTransform();
+}
 
-function editZoomLabel() { const label = document.querySelector('#zoomLabel'); label.classList.add('editing'); const input = document.createElement('input'); input.type = 'number'; input.min = '1'; input.max = '1000'; input.value = Math.round(view.scale * 100) / 10; input.className = 'zoom-input'; label.textContent = ''; label.appendChild(input); input.focus(); input.select(); const commit = () => { const value = parseFloat(input.value); if (!isNaN(value) && value >= 1) { setZoom(value / 10); } label.classList.remove('editing'); }; input.addEventListener('blur', commit); input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } else if (e.key === 'Escape') { e.preventDefault(); label.classList.remove('editing'); applyTransform(); } }); }
+function setZoomCentered(next, cx, cy) {
+  const canvasEl = document.querySelector('#canvasWrap');
+  const rect = canvasEl.getBoundingClientRect();
+  const centerX = cx ?? rect.width / 2;
+  const centerY = cy ?? rect.height / 2;
+  const scaleRatio = next / view.scale;
+  view.x = centerX - (centerX - view.x) * scaleRatio;
+  view.y = centerY - (centerY - view.y) * scaleRatio;
+  view.scale = Math.max(minZoom, Math.min(next, 100));
+  applyTransform();
+}
 
-async function loadCsv() { const button = document.querySelector('#loadButton'); button.disabled = true; statusText.textContent = 'Carregando planilha...'; try { const response = await fetch(document.querySelector('#csvUrl').value.trim() || DEFAULT_URL); if (!response.ok) throw new Error(`HTTP ${response.status}`); graph = makeGraph(parseCsv(await response.text())); if (!graph.nodes.length) throw new Error('Nenhum nó encontrado'); document.querySelector('#nodeCount').textContent = graph.nodes.length; document.querySelector('#edgeCount').textContent = graph.edges.length; searchInput.disabled = false; emptyState.classList.add('hidden'); status.classList.add('loaded'); statusText.textContent = 'Planilha sincronizada'; fit(); render(); } catch (error) { status.classList.remove('loaded'); statusText.textContent = 'Falha ao carregar'; showToast(`Não foi possível carregar o CSV: ${error.message}`); } finally { button.disabled = false; } }
+function fit() {
+  const canvasEl = document.querySelector('#canvasWrap');
+  const rect = canvasEl.getBoundingClientRect();
+  const bounds = getContentBounds();
+  const padding = 40;
+  const scaleX = (rect.width - padding * 2) / bounds.width;
+  const scaleY = (rect.height - padding * 2) / bounds.height;
+  const scale = Math.min(scaleX, scaleY, 10);
+  view.scale = Math.max(0.1, scale);
+  minZoom = scale;
+  view.x = rect.width / 2 - (bounds.minX + bounds.width / 2) * view.scale;
+  view.y = rect.height / 2 - (bounds.minY + bounds.height / 2) * view.scale;
+  svg.setAttribute('viewBox', `${bounds.minX} ${bounds.minY} ${bounds.width} ${bounds.height}`);
+  applyTransform();
+}
 
-document.querySelector('#loadButton').addEventListener('click', loadCsv); document.querySelector('#zoomLabel').addEventListener('click', editZoomLabel); document.querySelector('#fitButton').addEventListener('click', fit); document.querySelector('#zoomInButton').addEventListener('click', () => setZoom(view.scale + 1)); document.querySelector('#zoomOutButton').addEventListener('click', () => setZoom(view.scale - 1)); document.querySelector('#closeDetails').addEventListener('click', () => details.classList.remove('open')); searchInput.addEventListener('input', event => { const query = event.target.value.toLowerCase(); document.querySelectorAll('.node').forEach(node => { const item = graph.nodes.find(value => value.id === node.dataset.id); node.style.opacity = query && !item.label.toLowerCase().includes(query) ? '.18' : '1'; }); });
-document.addEventListener('keydown', event => { if (!event.ctrlKey || event.altKey || event.metaKey) return; if (event.key === '+' || event.key === '=') { event.preventDefault(); setZoomCentered(view.scale + 1); } else if (event.key === '-') { event.preventDefault(); setZoomCentered(view.scale - 1); } }); canvas.addEventListener('wheel', event => { event.preventDefault(); if (event.ctrlKey) { const rect = canvas.getBoundingClientRect(); setZoomCentered(view.scale + (event.deltaY < 0 ? 1 : -1), event.clientX - rect.left, event.clientY - rect.top); } else { view.y -= event.deltaY * 0.5; applyTransform(); } }, { passive: false }); canvas.addEventListener('selectstart', event => event.preventDefault()); canvas.addEventListener('pointerdown', event => { drag = { x: event.clientX - view.x, y: event.clientY - view.y, startX: event.clientX, startY: event.clientY, moved: false }; suppressNodeClick = false; canvas.setPointerCapture(event.pointerId); }); canvas.addEventListener('pointermove', event => { if (!drag) return; if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 4) drag.moved = true; view.x = event.clientX - drag.x; view.y = event.clientY - drag.y; applyTransform(); }); canvas.addEventListener('pointerup', () => { if (drag) suppressNodeClick = drag.moved; drag = null; }); canvas.addEventListener('pointercancel', () => { drag = null; suppressNodeClick = true; });
-loadCsv();
+function centerOnRoot() {
+  const canvasEl = document.querySelector('#canvasWrap');
+  const rect = canvasEl.getBoundingClientRect();
+  const positions = layoutGraph();
+  const rootPos = positions.get('1');
+  if (!rootPos) return;
+  view.scale = 10;
+  view.x = rect.width / 2 - rootPos.x * view.scale;
+  view.y = rect.height / 2 - rootPos.y * view.scale;
+  applyTransform();
+}
+
+function editZoomLabel() {
+  const label = document.querySelector('#zoomLabel');
+  label.classList.add('editing');
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.min = '1';
+  input.max = '1000';
+  input.value = Math.round(view.scale * 100) / 10;
+  input.className = 'zoom-input';
+  label.textContent = '';
+  label.appendChild(input);
+  input.focus();
+  input.select();
+  const commit = () => {
+    const value = parseFloat(input.value);
+    if (!isNaN(value) && value >= 1) { setZoom(value / 10); }
+    label.classList.remove('editing');
+  };
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    else if (e.key === 'Escape') { e.preventDefault(); label.classList.remove('editing'); applyTransform(); }
+  });
+}
+
+async function loadCsv(url) {
+  const button = document.querySelector('#loadButton');
+  button.disabled = true;
+  statusText.textContent = 'Carregando planilha...';
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    graph = makeGraph(parseCsv(await response.text()));
+    if (!graph.nodes.length) throw new Error('Nenhum nó encontrado');
+    document.querySelector('#nodeCount').textContent = graph.nodes.length;
+    document.querySelector('#edgeCount').textContent = graph.edges.length;
+    searchInput.disabled = false;
+    emptyState.classList.add('hidden');
+    status.classList.add('loaded');
+    statusText.textContent = 'Planilha sincronizada';
+    render();
+    fitToCategories();
+  } catch (error) {
+    status.classList.remove('loaded');
+    statusText.textContent = 'Falha ao carregar';
+    showToast(`Não foi possível carregar o CSV: ${error.message}`);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function switchMode(mode) {
+  currentMode = mode;
+  document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.mode === mode));
+  loadCsv(mode === 'atual' ? ATUAL_URL : IDEAL_URL);
+}
+
+document.querySelector('#loadButton').addEventListener('click', () => loadCsv(currentMode === 'atual' ? ATUAL_URL : IDEAL_URL));
+document.querySelector('#zoomLabel').addEventListener('click', editZoomLabel);
+document.querySelector('#fitButton').addEventListener('click', fit);
+document.querySelector('#zoomInButton').addEventListener('click', () => setZoom(view.scale + 1));
+document.querySelector('#zoomOutButton').addEventListener('click', () => setZoom(view.scale - 1));
+document.querySelector('#closeDetails').addEventListener('click', () => details.classList.remove('open'));
+document.querySelector('#modeAtual').addEventListener('click', () => switchMode('atual'));
+document.querySelector('#modeIdeal').addEventListener('click', () => switchMode('ideal'));
+
+searchInput.addEventListener('input', event => {
+  const query = event.target.value.toLowerCase();
+  document.querySelectorAll('.node').forEach(node => {
+    const item = graph.nodes.find(value => value.id === node.dataset.id);
+    node.style.opacity = query && !item.label.toLowerCase().includes(query) ? '.18' : '1';
+  });
+});
+
+document.addEventListener('keydown', event => {
+  if (!event.ctrlKey || event.altKey || event.metaKey) return;
+  if (event.key === '+' || event.key === '=') { event.preventDefault(); setZoomCentered(view.scale + 1); }
+  else if (event.key === '-') { event.preventDefault(); setZoomCentered(view.scale - 1); }
+});
+
+canvas.addEventListener('wheel', event => {
+  event.preventDefault();
+  if (event.ctrlKey) {
+    const rect = canvas.getBoundingClientRect();
+    setZoomCentered(view.scale + (event.deltaY < 0 ? 1 : -1), event.clientX - rect.left, event.clientY - rect.top);
+  } else {
+    view.y -= event.deltaY * 0.5;
+    applyTransform();
+  }
+}, { passive: false });
+
+canvas.addEventListener('selectstart', event => event.preventDefault());
+
+canvas.addEventListener('pointerdown', event => {
+  if (event.pointerType === 'mouse' && event.button !== 0) return;
+  drag = { x: event.clientX - view.x, y: event.clientY - view.y, startX: event.clientX, startY: event.clientY, moved: false };
+  suppressNodeClick = false;
+  canvas.setPointerCapture(event.pointerId);
+});
+
+canvas.addEventListener('pointermove', event => {
+  if (!drag) return;
+  if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 4) drag.moved = true;
+  view.x = event.clientX - drag.x;
+  view.y = event.clientY - drag.y;
+  applyTransform();
+});
+
+canvas.addEventListener('pointerup', () => {
+  if (drag) suppressNodeClick = drag.moved;
+  drag = null;
+});
+
+canvas.addEventListener('pointercancel', () => { drag = null; suppressNodeClick = true; });
+
+let lastPinchDist = 0;
+let lastPinchCenter = { x: 0, y: 0 };
+
+canvas.addEventListener('touchstart', event => {
+  if (event.touches.length === 2) {
+    event.preventDefault();
+    const t1 = event.touches[0];
+    const t2 = event.touches[1];
+    lastPinchDist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+    lastPinchCenter = { x: (t1.clientX + t2.clientX) / 2, y: (t1.clientY + t2.clientY) / 2 };
+    pinch = { scale: view.scale };
+    drag = null;
+  } else if (event.touches.length === 1 && !drag) {
+    const touch = event.touches[0];
+    drag = { x: touch.clientX - view.x, y: touch.clientY - view.y, startX: touch.clientX, startY: touch.clientY, moved: false };
+    suppressNodeClick = false;
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', event => {
+  if (event.touches.length === 2 && pinch) {
+    event.preventDefault();
+    const t1 = event.touches[0];
+    const t2 = event.touches[1];
+    const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+    const centerX = (t1.clientX + t2.clientX) / 2;
+    const centerY = (t1.clientY + t2.clientY) / 2;
+    const scale = pinch.scale * (dist / lastPinchDist);
+    const canvasEl = document.querySelector('#canvasWrap');
+    const rect = canvasEl.getBoundingClientRect();
+    setZoomCentered(scale, centerX - rect.left, centerY - rect.top);
+  } else if (event.touches.length === 1 && drag) {
+    event.preventDefault();
+    const touch = event.touches[0];
+    if (Math.hypot(touch.clientX - drag.startX, touch.clientY - drag.startY) > 4) drag.moved = true;
+    view.x = touch.clientX - drag.x;
+    view.y = touch.clientY - drag.y;
+    applyTransform();
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchend', event => {
+  if (event.touches.length < 2) {
+    pinch = null;
+    lastPinchDist = 0;
+  }
+  if (drag) {
+    suppressNodeClick = drag.moved;
+    drag = null;
+  }
+});
+
+canvas.addEventListener('touchcancel', () => {
+  pinch = null;
+  drag = null;
+  suppressNodeClick = true;
+});
+
+loadCsv(ATUAL_URL);

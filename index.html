@@ -27,11 +27,15 @@
     </section>
 
     <section class="controls" aria-label="Controles do diagrama">
+      <div class="mode-toggle" role="group" aria-label="Modo de visualização">
+        <button class="mode-btn active" id="modeAtual" data-mode="atual" title="Fluxo atual">Atual</button>
+        <button class="mode-btn" id="modeIdeal" data-mode="ideal" title="Fluxo ideal">Ideal</button>
+      </div>
       <label class="url-field">
         <span>Fonte CSV publicada</span>
-        <input id="csvUrl" type="url" value="https://docs.google.com/spreadsheets/d/e/2PACX-1vRPWNQ7rwTUNBgDEZjpcZXORDDaWnMXDzGM0udZCS2wPdD-PM_-FqhcvB2z1DduIVh43JBStqGmy5Lc/pub?gid=0&single=true&output=csv">
+        <input id="csvUrl" type="url" value="https://docs.google.com/spreadsheets/d/e/2PACX-1vRPWNQ7rwTUNBgDEZjpcZXORDDaWnMXDzGM0udZCS2wPdD-PM_-FqhcvB2z1DduIVh43JBStqGmy5Lc/pub?gid=0&single=true&output=csv" readonly>
       </label>
-      <button class="primary" id="loadButton">Carregar fluxo</button>
+      <button class="primary" id="loadButton">Recarregar</button>
       <label class="search-field"><span>⌕</span><input id="searchInput" type="search" placeholder="Buscar no fluxo..." disabled></label>
       <div class="view-actions">
         <button class="icon-button" id="zoomOutButton" title="Diminuir zoom">−</button>
