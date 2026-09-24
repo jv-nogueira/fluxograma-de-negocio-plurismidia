@@ -331,7 +331,7 @@ function applyTransform() {
   mainSvg.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
   const label = document.querySelector('#zoomLabel');
   if (label && !label.classList.contains('editing')) {
-    label.textContent = `${Math.round(view.scale * 100)}%`;
+    label.textContent = `${Math.round(view.scale * 10 + 90)}%`;
   }
   positionDetails();
 }
@@ -372,7 +372,7 @@ function editZoomLabel() {
   input.select();
   const commit = () => {
     const value = parseFloat(input.value);
-    if (!isNaN(value) && value >= 100) { setZoomCentered(value / 100); }
+    if (!isNaN(value) && value >= 10) { setZoomCentered(value / 10); }
     label.classList.remove('editing');
   };
   input.addEventListener('blur', commit);
@@ -419,8 +419,8 @@ function switchMode(mode) {
 document.querySelector('#loadButton')?.addEventListener('click', () => loadCsv(currentMode === 'atual' ? ATUAL_URL : IDEAL_URL));
 document.querySelector('#zoomLabel')?.addEventListener('click', editZoomLabel);
 document.querySelector('#fitButton')?.addEventListener('click', fit);
-document.querySelector('#zoomInButton')?.addEventListener('click', () => setZoomCentered(view.scale + 0.1));
-document.querySelector('#zoomOutButton')?.addEventListener('click', () => setZoomCentered(view.scale - 0.1));
+document.querySelector('#zoomInButton')?.addEventListener('click', () => setZoomCentered(view.scale + 1.0));
+document.querySelector('#zoomOutButton')?.addEventListener('click', () => setZoomCentered(view.scale - 1.0));
 document.querySelector('#closeDetails')?.addEventListener('click', () => details?.classList.remove('open'));
 document.querySelector('#modeAtual')?.addEventListener('click', () => switchMode('atual'));
 document.querySelector('#modeIdeal')?.addEventListener('click', () => switchMode('ideal'));
@@ -437,8 +437,8 @@ if (searchInput) {
 
 document.addEventListener('keydown', event => {
   if (!event.ctrlKey || event.altKey || event.metaKey) return;
-  if (event.key === '+' || event.key === '=') { event.preventDefault(); setZoomCentered(view.scale + 0.1); }
-  else if (event.key === '-') { event.preventDefault(); setZoomCentered(view.scale - 0.1); }
+  if (event.key === '+' || event.key === '=') { event.preventDefault(); setZoomCentered(view.scale + 1.0); }
+  else if (event.key === '-') { event.preventDefault(); setZoomCentered(view.scale - 1.0); }
 });
 
 if (canvas) {
@@ -446,7 +446,7 @@ if (canvas) {
     event.preventDefault();
     if (event.ctrlKey) {
       const rect = canvas.getBoundingClientRect();
-      const zoomChange = event.deltaY < 0 ? 0.1 : -0.1;
+      const zoomChange = event.deltaY < 0 ? 1.0 : -1.0;
       setZoomCentered(view.scale + zoomChange, event.clientX - rect.left, event.clientY - rect.top);
     } else {
       if (view.scale > 1) {
