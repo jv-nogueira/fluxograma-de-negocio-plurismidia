@@ -322,17 +322,29 @@ function selectNode(id, element) {
 
 function applyTransform() {
   if (!mainSvg) return;
+
   if (view.scale <= 1) {
     view.scale = 1;
     view.x = 0;
     view.y = 0;
+  } else if (canvas) {
+    const rect = canvas.getBoundingClientRect();
+    // Calcula o limite máximo de deslocamento para que o gráfico não saia da tela
+    const maxX = ((view.scale - 1) * rect.width) / 2;
+    const maxY = ((view.scale - 1) * rect.height) / 2;
+
+    view.x = Math.max(-maxX, Math.min(maxX, view.x));
+    view.y = Math.max(-maxY, Math.min(maxY, view.y));
   }
+
   mainSvg.style.transformOrigin = 'center center';
   mainSvg.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
+
   const label = document.querySelector('#zoomLabel');
   if (label && !label.classList.contains('editing')) {
     label.textContent = `${Math.round(view.scale * 10 + 90)}%`;
   }
+
   positionDetails();
 }
 
@@ -364,7 +376,7 @@ function editZoomLabel() {
   input.type = 'number';
   input.min = '100';
   input.max = '1000';
-  input.value = Math.round(view.scale * 100);
+  input.value = Math.round(view.scale * 10);
   input.className = 'zoom-input';
   label.textContent = '';
   label.appendChild(input);
