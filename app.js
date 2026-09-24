@@ -1,7 +1,7 @@
 const IDEAL_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRPWNQ7rwTUNBgDEZjpcZXORDDaWnMXDzGM0udZCS2wPdD-PM_-FqhcvB2z1DduIVh43JBStqGmy5Lc/pub?gid=0&single=true&output=csv';
 const ATUAL_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRPWNQ7rwTUNBgDEZjpcZXORDDaWnMXDzGM0udZCS2wPdD-PM_-FqhcvB2z1DduIVh43JBStqGmy5Lc/pub?gid=1647146284&single=true&output=csv';
 
-const svg = document.querySelector('#diagram');
+const mainSvg = document.querySelector('#diagram');
 const canvas = document.querySelector('#canvasWrap');
 const emptyState = document.querySelector('#emptyState');
 const status = document.querySelector('#status');
@@ -9,9 +9,9 @@ const statusText = document.querySelector('#statusText');
 const searchInput = document.querySelector('#searchInput');
 const tooltip = document.querySelector('#tooltip');
 const details = document.querySelector('#details');
+
 let graph = { nodes: [], edges: [] };
-let view = { scale: 10, x: 0, y: 0 };
-let minZoom = 0.1;
+let view = { scale: 1, x: 0, y: 0 };
 let drag = null;
 let pinch = null;
 let suppressNodeClick = false;
@@ -20,6 +20,7 @@ let currentMode = 'atual';
 
 function showToast(message) {
   const toast = document.querySelector('#toast');
+  if (!toast) return;
   toast.textContent = message;
   toast.classList.add('show');
   setTimeout(() => toast.classList.remove('show'), 3500);
@@ -30,20 +31,39 @@ function escapeHtml(text) {
 }
 
 function parseCsv(text) {
-  const rows = []; let row = []; let value = ''; let quoted = false;
+  const rows = [];
+  let row = [];
+  let value = '';
+  let quoted = false;
   for (let index = 0; index < text.length; index += 1) {
-    const char = text[index]; const next = text[index + 1];
-    if (char === '"' && quoted && next === '"') { value += '"'; index += 1; }
-    else if (char === '"') quoted = !quoted;
-    else if ((char === ',' || char === '\n' || char === '\r') && !quoted) {
+    const char = text[index];
+    const next = text[index + 1];
+    if (char === '"' && quoted && next === '"') {
+      value += '"';
+      index += 1;
+    } else if (char === '"') {
+      quoted = !quoted;
+    } else if ((char === ',' || char === '\n' || char === '\r') && !quoted) {
       if (char === '\r' && next === '\n') index += 1;
-      row.push(value); value = '';
-      if (char !== ',') { rows.push(row); row = []; }
-    } else value += char;
+      row.push(value);
+      value = '';
+      if (char !== ',') {
+        rows.push(row);
+        row = [];
+      }
+    } else {
+      value += char;
+    }
   }
-  if (value || row.length) { row.push(value); rows.push(row); }
+  if (value || row.length) {
+    row.push(value);
+    rows.push(row);
+  }
+  if (!rows.length) return [];
   const headers = rows.shift().map(header => header.trim().toLowerCase());
-  return rows.filter(item => item.some(cell => cell.trim())).map(item => Object.fromEntries(headers.map((header, i) => [header, (item[i] || '').trim()])));
+  return rows
+    .filter(item => item.some(cell => cell.trim()))
+    .map(item => Object.fromEntries(headers.map((header, i) => [header, (item[i] || '').trim()])));
 }
 
 function cleanLabel(label) {
@@ -92,8 +112,12 @@ function textLines(text, maxChars = 31) {
     const words = explicitLine.split(/\s+/);
     let line = '';
     words.forEach(word => {
-      if ((line + ' ' + word).trim().length > maxChars && line) { lines.push(line); line = word; }
-      else line = (line + ' ' + word).trim();
+      if ((line + ' ' + word).trim().length > maxChars && line) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = (line + ' ' + word).trim();
+      }
     });
     if (line) lines.push(line);
     else lines.push('');
@@ -104,102 +128,97 @@ function textLines(text, maxChars = 31) {
 function layoutGraph() {
   const incoming = new Map(graph.nodes.map(node => [node.id, []]));
   const children = new Map(graph.nodes.map(node => [node.id, []]));
-  graph.edges.forEach(edge => { incoming.get(edge.to)?.push(edge.from); children.get(edge.from)?.push(edge.to); });
-  const gapX = 70; const gapY = 190; const nodeW = 238; const positions = new Map();
+  graph.edges.forEach(edge => {
+    incoming.get(edge.to)?.push(edge.from);
+    children.get(edge.from)?.push(edge.to);
+  });
+  const gapX = 70;
+  const gapY = 190;
+  const nodeW = 238;
+  const positions = new Map();
   const roots = graph.nodes.filter(node => !(incoming.get(node.id) || []).length);
   const visited = new Set();
+
   const measure = (id, stack = new Set()) => {
     if (stack.has(id)) return 1;
-    const nextStack = new Set(stack); nextStack.add(id);
+    const nextStack = new Set(stack);
+    nextStack.add(id);
     const branches = (children.get(id) || []).filter(child => !visited.has(child));
     return branches.length ? branches.reduce((total, child) => total + measure(child, nextStack), 0) : 1;
   };
+
   const place = (id, left, depth, stack = new Set()) => {
     if (stack.has(id) || visited.has(id)) return left;
-    visited.add(id); const node = graph.nodes.find(item => item.id === id); const lines = textLines(node.label); const height = Math.max(54, lines.length * 16 + 23);
+    visited.add(id);
+    const node = graph.nodes.find(item => item.id === id);
+    const lines = textLines(node.label);
+    const height = Math.max(54, lines.length * 16 + 23);
     const branches = (children.get(id) || []).filter(child => !visited.has(child));
     const width = Math.max(1, branches.reduce((total, child) => total + measure(child), 0));
     const childStart = branches.length ? left : left + 0.5;
     let childCursor = childStart;
-    branches.forEach(child => { const childWidth = measure(child); place(child, childCursor, depth + 1, new Set([...stack, id])); childCursor += childWidth; });
+    branches.forEach(child => {
+      const childWidth = measure(child);
+      place(child, childCursor, depth + 1, new Set([...stack, id]));
+      childCursor += childWidth;
+    });
     const center = branches.length ? (childStart + childCursor - 1) / 2 : left;
     positions.set(id, { x: center * (nodeW + gapX), y: depth * gapY, width: nodeW, height, lines, depth });
     return left + width;
   };
-  let cursor = 0; roots.forEach(root => { cursor = place(root.id, cursor, 0); });
+
+  let cursor = 0;
+  roots.forEach(root => { cursor = place(root.id, cursor, 0); });
   graph.nodes.filter(node => !visited.has(node.id)).forEach(node => { cursor = place(node.id, cursor, 0); });
-  const center = [...positions.values()].reduce((sum, position) => sum + position.x, 0) / positions.size;
-  positions.forEach(position => { position.x -= center; });
+
+  if (positions.size > 0) {
+    const center = [...positions.values()].reduce((sum, position) => sum + position.x, 0) / positions.size;
+    positions.forEach(position => { position.x -= center; });
+  }
   return positions;
 }
 
-function getCategoryBounds(positions) {
-  const categoryNodes = graph.nodes.filter(node => {
-    return node.id === '1' || graph.edges.some(edge => edge.from === '1' && edge.to === node.id);
-  });
-  if (categoryNodes.length === 0) return getContentBounds();
-  const catPositions = categoryNodes.map(node => positions.get(node.id)).filter(Boolean);
-  const minX = Math.min(...catPositions.map(p => p.x - p.width / 2)) - 50;
-  const maxX = Math.max(...catPositions.map(p => p.x + p.width / 2)) + 50;
-  const minY = Math.min(...catPositions.map(p => p.y - p.height / 2)) - 50;
-  const maxY = Math.max(...catPositions.map(p => p.y + p.height / 2)) + 50;
-  return { minX, maxX, minY, maxY, width: maxX - minX, height: maxY - minY };
-}
-
-function getContentBounds() {
+function fit() {
+  if (!mainSvg) return;
   const positions = layoutGraph();
   const all = [...positions.values()];
-  const minX = Math.min(...all.map(p => p.x - p.width / 2)) - 50;
-  const maxX = Math.max(...all.map(p => p.x + p.width / 2)) + 50;
-  const minY = -50;
-  const maxY = Math.max(...all.map(p => p.y + p.height)) + 80;
-  return { minX, maxX, minY, maxY, width: maxX - minX, height: maxY - minY };
-}
+  if (all.length === 0) return;
 
-function fitToCategories() {
-  const canvasEl = document.querySelector('#canvasWrap');
-  const rect = canvasEl.getBoundingClientRect();
-  const positions = layoutGraph();
-  const rootPos = positions.get('1');
-  const fullBounds = getContentBounds();
-  const padding = 40;
-  const scaleX = (rect.width - padding * 2) / fullBounds.width;
-  const scaleY = (rect.height - padding * 2) / fullBounds.height;
-  minZoom = Math.min(scaleX, scaleY, 10);
-  const catBounds = getCategoryBounds(positions);
-  const catScaleX = (rect.width - padding * 2) / catBounds.width;
-  const catScaleY = (rect.height - padding * 2) / catBounds.height;
-  const catScale = Math.min(catScaleX, catScaleY, 10);
-  view.scale = Math.max(minZoom, catScale);
-  if (rootPos) {
-    view.x = rect.width / 2 - rootPos.x * view.scale;
-    view.y = rect.height / 2 - rootPos.y * view.scale;
-  } else {
-    view.x = rect.width / 2 - (fullBounds.minX + fullBounds.width / 2) * view.scale;
-    view.y = rect.height / 2 - (fullBounds.minY + fullBounds.height / 2) * view.scale;
-  }
-  svg.setAttribute('viewBox', `${fullBounds.minX} ${fullBounds.minY} ${fullBounds.width} ${fullBounds.height}`);
+  const minX = Math.min(...all.map(p => p.x - p.width / 2));
+  const maxX = Math.max(...all.map(p => p.x + p.width / 2));
+  const minY = Math.min(...all.map(p => p.y - p.height / 2));
+  const maxY = Math.max(...all.map(p => p.y + p.height / 2));
+
+  const margin = 60;
+  const vbX = minX - margin;
+  const vbY = minY - margin;
+  const vbW = (maxX - minX) + margin * 2;
+  const vbH = (maxY - minY) + margin * 2;
+
+  mainSvg.setAttribute('viewBox', `${vbX} ${vbY} ${vbW} ${vbH}`);
+  view.scale = 1;
+  view.x = 0;
+  view.y = 0;
   applyTransform();
 }
 
 function render() {
-  if (!graph.nodes.length) return;
+  if (!graph.nodes.length || !mainSvg) return;
   const positions = layoutGraph();
-  const all = [...positions.values()];
-  const minX = Math.min(...all.map(p => p.x - p.width / 2)) - 50;
-  const maxX = Math.max(...all.map(p => p.x + p.width / 2)) + 50;
-  const maxY = Math.max(...all.map(p => p.y + p.height)) + 80;
-  svg.setAttribute('viewBox', `${minX} -50 ${maxX - minX} ${maxY + 50}`);
-  svg.innerHTML = `<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8c9991"/></marker></defs>`;
+
+  mainSvg.innerHTML = `<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8c9991"/></marker></defs>`;
   const edgeLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
   const nodeLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-  svg.append(edgeLayer, nodeLayer);
+  mainSvg.append(edgeLayer, nodeLayer);
+
   graph.edges.forEach(edge => {
     const from = positions.get(edge.from);
     const to = positions.get(edge.to);
     if (!from || !to) return;
-    const startX = from.x, startY = from.y + from.height / 2;
-    const endX = to.x, endY = to.y - to.height / 2;
+    const startX = from.x;
+    const startY = from.y + from.height / 2;
+    const endX = to.x;
+    const endY = to.y - to.height / 2;
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     path.setAttribute('class', 'edge');
     path.setAttribute('marker-end', 'url(#arrow)');
@@ -216,8 +235,10 @@ function render() {
       edgeLayer.append(label);
     }
   });
+
   graph.nodes.forEach(node => {
     const p = positions.get(node.id);
+    if (!p) return;
     const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     const isCategory = node.id === '1' || graph.edges.some(edge => edge.from === '1' && edge.to === node.id);
     const hasDecisionPaths = graph.edges.some(edge => edge.from === node.id && edge.label);
@@ -239,10 +260,12 @@ function render() {
       group.append(text);
     });
     group.addEventListener('click', () => { if (!suppressNodeClick) selectNode(node.id, group); suppressNodeClick = false; });
-    group.addEventListener('mouseenter', event => {
+    group.addEventListener('mouseenter', () => {
+      if (!tooltip) return;
       tooltip.textContent = node.label;
       tooltip.style.display = 'block';
       const ctm = group.getScreenCTM();
+      if (!ctm) return;
       const scaledWidth = 238 * ctm.a;
       const scaledHeight = 54 * ctm.d;
       const gap = 4;
@@ -256,17 +279,16 @@ function render() {
       tooltip.style.left = `${left}px`;
       tooltip.style.top = `${top}px`;
     });
-    group.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+    group.addEventListener('mouseleave', () => { if (tooltip) tooltip.style.display = 'none'; });
     nodeLayer.append(group);
   });
-  applyTransform();
 }
 
 function positionDetails() {
-  if (!selectedNodeElement || !details.classList.contains('open')) return;
+  if (!selectedNodeElement || !details || !details.classList.contains('open')) return;
   const ctm = selectedNodeElement.getScreenCTM();
+  if (!ctm) return;
   const nodeWidth = 238;
-  const nodeHeight = 54;
   const nodeRight = ctm.e + nodeWidth;
   const nodeTop = ctm.f;
   const panel = details.getBoundingClientRect();
@@ -281,77 +303,68 @@ function positionDetails() {
 function selectNode(id, element) {
   document.querySelectorAll('.node').forEach(node => node.classList.toggle('selected', node.dataset.id === id));
   const node = graph.nodes.find(item => item.id === id);
-  if (!node) return;
+  if (!node || !details) return;
   selectedNodeElement = element;
-  document.querySelector('#detailTitle').textContent = node.label.split('\n')[0];
-  document.querySelector('#detailBody').innerHTML = node.label.replace(/\n/g, '<br>');
+  const titleEl = document.querySelector('#detailTitle');
+  const bodyEl = document.querySelector('#detailBody');
+  const linksEl = document.querySelector('#detailLinks');
+  if (titleEl) titleEl.textContent = node.label.split('\n')[0];
+  if (bodyEl) bodyEl.innerHTML = node.label.replace(/\n/g, '<br>');
   const outgoing = graph.edges.filter(edge => edge.from === id);
-  document.querySelector('#detailLinks').innerHTML = outgoing.length ? `<div class="path">Próximos caminhos<br>${outgoing.map(edge => `${escapeHtml(edge.label || 'Próximo')} → ${escapeHtml(graph.nodes.find(item => item.id === edge.to)?.label.split('\n')[0] || edge.to)}`).join('<br>')}</div>` : '';
+  if (linksEl) {
+    linksEl.innerHTML = outgoing.length
+      ? `<div class="path">Próximos caminhos<br>${outgoing.map(edge => `${escapeHtml(edge.label || 'Próximo')} → ${escapeHtml(graph.nodes.find(item => item.id === edge.to)?.label.split('\n')[0] || edge.to)}`).join('<br>')}</div>`
+      : '';
+  }
   details.classList.add('open');
   positionDetails();
 }
 
 function applyTransform() {
-  svg.style.transformOrigin = 'center center';
-  svg.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
+  if (!mainSvg) return;
+  if (view.scale <= 1) {
+    view.scale = 1;
+    view.x = 0;
+    view.y = 0;
+  }
+  mainSvg.style.transformOrigin = 'center center';
+  mainSvg.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
   const label = document.querySelector('#zoomLabel');
-  if (!label.classList.contains('editing')) label.textContent = `${Math.round(view.scale * 100) / 10}%`;
+  if (label && !label.classList.contains('editing')) {
+    label.textContent = `${Math.round(view.scale * 100)}%`;
+  }
   positionDetails();
 }
 
-function setZoom(next) {
-  view.scale = Math.max(minZoom, Math.min(next, 100));
-  applyTransform();
-}
-
 function setZoomCentered(next, cx, cy) {
-  const canvasEl = document.querySelector('#canvasWrap');
-  const rect = canvasEl.getBoundingClientRect();
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
   const centerX = cx ?? rect.width / 2;
   const centerY = cy ?? rect.height / 2;
-  const scaleRatio = next / view.scale;
-  view.x = centerX - (centerX - view.x) * scaleRatio;
-  view.y = centerY - (centerY - view.y) * scaleRatio;
-  view.scale = Math.max(minZoom, Math.min(next, 100));
-  applyTransform();
-}
 
-function fit() {
-  const canvasEl = document.querySelector('#canvasWrap');
-  const rect = canvasEl.getBoundingClientRect();
-  const bounds = getContentBounds();
-  const padding = 40;
-  const scaleX = (rect.width - padding * 2) / bounds.width;
-  const scaleY = (rect.height - padding * 2) / bounds.height;
-  const scale = Math.min(scaleX, scaleY, 10);
-  view.scale = Math.max(0.1, scale);
-  minZoom = scale;
-  view.x = rect.width / 2 - (bounds.minX + bounds.width / 2) * view.scale;
-  view.y = rect.height / 2 - (bounds.minY + bounds.height / 2) * view.scale;
-  svg.setAttribute('viewBox', `${bounds.minX} ${bounds.minY} ${bounds.width} ${bounds.height}`);
-  applyTransform();
-}
-
-function centerOnRoot() {
-  const canvasEl = document.querySelector('#canvasWrap');
-  const rect = canvasEl.getBoundingClientRect();
-  const positions = layoutGraph();
-  const rootPos = positions.get('1');
-  if (!rootPos) return;
-  view.scale = 10;
-  view.x = rect.width / 2 - rootPos.x * view.scale;
-  view.y = rect.height / 2 - rootPos.y * view.scale;
+  const newScale = Math.max(1, next);
+  if (newScale === 1) {
+    view.x = 0;
+    view.y = 0;
+    view.scale = 1;
+  } else {
+    const scaleRatio = newScale / view.scale;
+    view.x = centerX - (centerX - view.x) * scaleRatio;
+    view.y = centerY - (centerY - view.y) * scaleRatio;
+    view.scale = newScale;
+  }
   applyTransform();
 }
 
 function editZoomLabel() {
   const label = document.querySelector('#zoomLabel');
+  if (!label) return;
   label.classList.add('editing');
   const input = document.createElement('input');
   input.type = 'number';
-  input.min = '1';
+  input.min = '100';
   input.max = '1000';
-  input.value = Math.round(view.scale * 100) / 10;
+  input.value = Math.round(view.scale * 100);
   input.className = 'zoom-input';
   label.textContent = '';
   label.appendChild(input);
@@ -359,7 +372,7 @@ function editZoomLabel() {
   input.select();
   const commit = () => {
     const value = parseFloat(input.value);
-    if (!isNaN(value) && value >= 1) { setZoom(value / 10); }
+    if (!isNaN(value) && value >= 100) { setZoomCentered(value / 100); }
     label.classList.remove('editing');
   };
   input.addEventListener('blur', commit);
@@ -371,27 +384,29 @@ function editZoomLabel() {
 
 async function loadCsv(url) {
   const button = document.querySelector('#loadButton');
-  button.disabled = true;
-  statusText.textContent = 'Carregando planilha...';
+  if (button) button.disabled = true;
+  if (statusText) statusText.textContent = 'Carregando planilha...';
   try {
     const response = await fetch(url);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     graph = makeGraph(parseCsv(await response.text()));
     if (!graph.nodes.length) throw new Error('Nenhum nó encontrado');
-    document.querySelector('#nodeCount').textContent = graph.nodes.length;
-    document.querySelector('#edgeCount').textContent = graph.edges.length;
-    searchInput.disabled = false;
-    emptyState.classList.add('hidden');
-    status.classList.add('loaded');
-    statusText.textContent = 'Planilha sincronizada';
+    const nodeCount = document.querySelector('#nodeCount');
+    const edgeCount = document.querySelector('#edgeCount');
+    if (nodeCount) nodeCount.textContent = graph.nodes.length;
+    if (edgeCount) edgeCount.textContent = graph.edges.length;
+    if (searchInput) searchInput.disabled = false;
+    if (emptyState) emptyState.classList.add('hidden');
+    if (status) status.classList.add('loaded');
+    if (statusText) statusText.textContent = 'Planilha sincronizada';
     render();
-    fitToCategories();
+    fit();
   } catch (error) {
-    status.classList.remove('loaded');
-    statusText.textContent = 'Falha ao carregar';
+    if (status) status.classList.remove('loaded');
+    if (statusText) statusText.textContent = 'Falha ao carregar';
     showToast(`Não foi possível carregar o CSV: ${error.message}`);
   } finally {
-    button.disabled = false;
+    if (button) button.disabled = false;
   }
 }
 
@@ -401,120 +416,118 @@ function switchMode(mode) {
   loadCsv(mode === 'atual' ? ATUAL_URL : IDEAL_URL);
 }
 
-document.querySelector('#loadButton').addEventListener('click', () => loadCsv(currentMode === 'atual' ? ATUAL_URL : IDEAL_URL));
-document.querySelector('#zoomLabel').addEventListener('click', editZoomLabel);
-document.querySelector('#fitButton').addEventListener('click', fit);
-document.querySelector('#zoomInButton').addEventListener('click', () => setZoom(view.scale + 1));
-document.querySelector('#zoomOutButton').addEventListener('click', () => setZoom(view.scale - 1));
-document.querySelector('#closeDetails').addEventListener('click', () => details.classList.remove('open'));
-document.querySelector('#modeAtual').addEventListener('click', () => switchMode('atual'));
-document.querySelector('#modeIdeal').addEventListener('click', () => switchMode('ideal'));
+document.querySelector('#loadButton')?.addEventListener('click', () => loadCsv(currentMode === 'atual' ? ATUAL_URL : IDEAL_URL));
+document.querySelector('#zoomLabel')?.addEventListener('click', editZoomLabel);
+document.querySelector('#fitButton')?.addEventListener('click', fit);
+document.querySelector('#zoomInButton')?.addEventListener('click', () => setZoomCentered(view.scale + 0.1));
+document.querySelector('#zoomOutButton')?.addEventListener('click', () => setZoomCentered(view.scale - 0.1));
+document.querySelector('#closeDetails')?.addEventListener('click', () => details?.classList.remove('open'));
+document.querySelector('#modeAtual')?.addEventListener('click', () => switchMode('atual'));
+document.querySelector('#modeIdeal')?.addEventListener('click', () => switchMode('ideal'));
 
-searchInput.addEventListener('input', event => {
-  const query = event.target.value.toLowerCase();
-  document.querySelectorAll('.node').forEach(node => {
-    const item = graph.nodes.find(value => value.id === node.dataset.id);
-    node.style.opacity = query && !item.label.toLowerCase().includes(query) ? '.18' : '1';
+if (searchInput) {
+  searchInput.addEventListener('input', event => {
+    const query = event.target.value.toLowerCase();
+    document.querySelectorAll('.node').forEach(node => {
+      const item = graph.nodes.find(value => value.id === node.dataset.id);
+      node.style.opacity = query && item && !item.label.toLowerCase().includes(query) ? '.18' : '1';
+    });
   });
-});
+}
 
 document.addEventListener('keydown', event => {
   if (!event.ctrlKey || event.altKey || event.metaKey) return;
-  if (event.key === '+' || event.key === '=') { event.preventDefault(); setZoomCentered(view.scale + 1); }
-  else if (event.key === '-') { event.preventDefault(); setZoomCentered(view.scale - 1); }
+  if (event.key === '+' || event.key === '=') { event.preventDefault(); setZoomCentered(view.scale + 0.1); }
+  else if (event.key === '-') { event.preventDefault(); setZoomCentered(view.scale - 0.1); }
 });
 
-canvas.addEventListener('wheel', event => {
-  event.preventDefault();
-  if (event.ctrlKey) {
-    const rect = canvas.getBoundingClientRect();
-    setZoomCentered(view.scale + (event.deltaY < 0 ? 1 : -1), event.clientX - rect.left, event.clientY - rect.top);
-  } else {
-    view.y -= event.deltaY * 0.5;
-    applyTransform();
-  }
-}, { passive: false });
-
-canvas.addEventListener('selectstart', event => event.preventDefault());
-
-canvas.addEventListener('pointerdown', event => {
-  if (event.pointerType === 'mouse' && event.button !== 0) return;
-  drag = { x: event.clientX - view.x, y: event.clientY - view.y, startX: event.clientX, startY: event.clientY, moved: false };
-  suppressNodeClick = false;
-  canvas.setPointerCapture(event.pointerId);
-});
-
-canvas.addEventListener('pointermove', event => {
-  if (!drag) return;
-  if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 4) drag.moved = true;
-  view.x = event.clientX - drag.x;
-  view.y = event.clientY - drag.y;
-  applyTransform();
-});
-
-canvas.addEventListener('pointerup', () => {
-  if (drag) suppressNodeClick = drag.moved;
-  drag = null;
-});
-
-canvas.addEventListener('pointercancel', () => { drag = null; suppressNodeClick = true; });
-
-let lastPinchDist = 0;
-let lastPinchCenter = { x: 0, y: 0 };
-
-canvas.addEventListener('touchstart', event => {
-  if (event.touches.length === 2) {
+if (canvas) {
+  canvas.addEventListener('wheel', event => {
     event.preventDefault();
-    const t1 = event.touches[0];
-    const t2 = event.touches[1];
-    lastPinchDist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
-    lastPinchCenter = { x: (t1.clientX + t2.clientX) / 2, y: (t1.clientY + t2.clientY) / 2 };
-    pinch = { scale: view.scale };
-    drag = null;
-  } else if (event.touches.length === 1 && !drag) {
-    const touch = event.touches[0];
-    drag = { x: touch.clientX - view.x, y: touch.clientY - view.y, startX: touch.clientX, startY: touch.clientY, moved: false };
+    if (event.ctrlKey) {
+      const rect = canvas.getBoundingClientRect();
+      const zoomChange = event.deltaY < 0 ? 0.1 : -0.1;
+      setZoomCentered(view.scale + zoomChange, event.clientX - rect.left, event.clientY - rect.top);
+    } else {
+      if (view.scale > 1) {
+        view.x -= event.deltaX * 0.5;
+        view.y -= event.deltaY * 0.5;
+        applyTransform();
+      }
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('selectstart', event => event.preventDefault());
+
+  canvas.addEventListener('pointerdown', event => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    drag = { x: event.clientX - view.x, y: event.clientY - view.y, startX: event.clientX, startY: event.clientY, moved: false };
     suppressNodeClick = false;
-  }
-}, { passive: false });
+    canvas.setPointerCapture(event.pointerId);
+  });
 
-canvas.addEventListener('touchmove', event => {
-  if (event.touches.length === 2 && pinch) {
-    event.preventDefault();
-    const t1 = event.touches[0];
-    const t2 = event.touches[1];
-    const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
-    const centerX = (t1.clientX + t2.clientX) / 2;
-    const centerY = (t1.clientY + t2.clientY) / 2;
-    const scale = pinch.scale * (dist / lastPinchDist);
-    const canvasEl = document.querySelector('#canvasWrap');
-    const rect = canvasEl.getBoundingClientRect();
-    setZoomCentered(scale, centerX - rect.left, centerY - rect.top);
-  } else if (event.touches.length === 1 && drag) {
-    event.preventDefault();
-    const touch = event.touches[0];
-    if (Math.hypot(touch.clientX - drag.startX, touch.clientY - drag.startY) > 4) drag.moved = true;
-    view.x = touch.clientX - drag.x;
-    view.y = touch.clientY - drag.y;
-    applyTransform();
-  }
-}, { passive: false });
+  canvas.addEventListener('pointermove', event => {
+    if (!drag) return;
+    if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 4) drag.moved = true;
+    if (view.scale > 1) {
+      view.x = event.clientX - drag.x;
+      view.y = event.clientY - drag.y;
+      applyTransform();
+    }
+  });
 
-canvas.addEventListener('touchend', event => {
-  if (event.touches.length < 2) {
-    pinch = null;
-    lastPinchDist = 0;
-  }
-  if (drag) {
-    suppressNodeClick = drag.moved;
+  canvas.addEventListener('pointerup', () => {
+    if (drag) suppressNodeClick = drag.moved;
     drag = null;
-  }
-});
+  });
 
-canvas.addEventListener('touchcancel', () => {
-  pinch = null;
-  drag = null;
-  suppressNodeClick = true;
-});
+  canvas.addEventListener('pointercancel', () => { drag = null; suppressNodeClick = true; });
+
+  let lastPinchDist = 0;
+  canvas.addEventListener('touchstart', event => {
+    if (event.touches.length === 2) {
+      event.preventDefault();
+      const t1 = event.touches[0];
+      const t2 = event.touches[1];
+      lastPinchDist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+      pinch = { scale: view.scale };
+      drag = null;
+    } else if (event.touches.length === 1 && !drag) {
+      const touch = event.touches[0];
+      drag = { x: touch.clientX - view.x, y: touch.clientY - view.y, startX: touch.clientX, startY: touch.clientY, moved: false };
+      suppressNodeClick = false;
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', event => {
+    if (event.touches.length === 2 && pinch) {
+      event.preventDefault();
+      const t1 = event.touches[0];
+      const t2 = event.touches[1];
+      const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+      const centerX = (t1.clientX + t2.clientX) / 2;
+      const centerY = (t1.clientY + t2.clientY) / 2;
+      const scale = pinch.scale * (dist / (lastPinchDist || 1));
+      const rect = canvas.getBoundingClientRect();
+      setZoomCentered(scale, centerX - rect.left, centerY - rect.top);
+    } else if (event.touches.length === 1 && drag) {
+      event.preventDefault();
+      const touch = event.touches[0];
+      if (Math.hypot(touch.clientX - drag.startX, touch.clientY - drag.startY) > 4) drag.moved = true;
+      if (view.scale > 1) {
+        view.x = touch.clientX - drag.x;
+        view.y = touch.clientY - drag.y;
+        applyTransform();
+      }
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', event => {
+    if (event.touches.length < 2) { pinch = null; lastPinchDist = 0; }
+    if (drag) { suppressNodeClick = drag.moved; drag = null; }
+  });
+
+  canvas.addEventListener('touchcancel', () => { pinch = null; drag = null; suppressNodeClick = true; });
+}
 
 loadCsv(ATUAL_URL);
