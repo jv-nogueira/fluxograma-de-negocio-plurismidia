@@ -128,17 +128,20 @@ function textLines(text, maxChars = 31) {
 function layoutGraph() {
   const incoming = new Map(graph.nodes.map(node => [node.id, []]));
   const children = new Map(graph.nodes.map(node => [node.id, []]));
+  
   graph.edges.forEach(edge => {
     incoming.get(edge.to)?.push(edge.from);
     children.get(edge.from)?.push(edge.to);
   });
+  
   const gapX = 70;
-  const gapY = 220;
+  const MIN_GAP_Y = 80; // Distância fixa mantida estritamente entre o Pai e o Filho
   const nodeW = 238;
   const positions = new Map();
   const roots = graph.nodes.filter(node => !(incoming.get(node.id) || []).length);
   const visited = new Set();
 
+  // Função auxiliar para calcular a largura em subárvore (colunas no eixo X)
   const measure = (id, stack = new Set()) => {
     if (stack.has(id)) return 1;
     const nextStack = new Set(stack);
@@ -147,34 +150,64 @@ function layoutGraph() {
     return branches.length ? branches.reduce((total, child) => total + measure(child, nextStack), 0) : 1;
   };
 
-  const place = (id, left, depth, stack = new Set()) => {
+  // Algoritmo de posicionamento focado no fluxo direto Pai -> Filho
+  const place = (id, left, parentPos = null, stack = new Set()) => {
     if (stack.has(id) || visited.has(id)) return left;
     visited.add(id);
+
     const node = graph.nodes.find(item => item.id === id);
     const lines = textLines(node.label);
     const height = Math.max(54, lines.length * 18 + 20);
+
     const branches = (children.get(id) || []).filter(child => !visited.has(child));
     const width = Math.max(1, branches.reduce((total, child) => total + measure(child), 0));
+    
+    // Cálculo do Y baseado APENAS no pai direto deste nó
+    let y = 0;
+    if (parentPos) {
+      // Borda inferior do pai
+      const parentBottom = parentPos.y + (parentPos.height / 2);
+      // O topo deste nó fica exatamente MIN_GAP_Y (80px) abaixo do pai
+      const nodeTop = parentBottom + MIN_GAP_Y;
+      // Define o centro Y para renderização no SVG
+      y = nodeTop + (height / 2);
+    } else {
+      // Nó Raiz (primeira linha)
+      y = height / 2;
+    }
+
+    const currentPos = { x: 0, y, width: nodeW, height, lines };
+    positions.set(id, currentPos);
+
     const childStart = branches.length ? left : left + 0.5;
     let childCursor = childStart;
+    
+    // Posiciona os filhos diretamente relacionados
     branches.forEach(child => {
       const childWidth = measure(child);
-      place(child, childCursor, depth + 1, new Set([...stack, id]));
+      place(child, childCursor, currentPos, new Set([...stack, id]));
       childCursor += childWidth;
     });
+    
+    // Centraliza o pai horizontalmente (X) sobre o grupo dos seus filhos
     const center = branches.length ? (childStart + childCursor - 1) / 2 : left;
-    positions.set(id, { x: center * (nodeW + gapX), y: depth * gapY, width: nodeW, height, lines, depth });
+    currentPos.x = center * (nodeW + gapX);
+
     return left + width;
   };
 
   let cursor = 0;
-  roots.forEach(root => { cursor = place(root.id, cursor, 0); });
-  graph.nodes.filter(node => !visited.has(node.id)).forEach(node => { cursor = place(node.id, cursor, 0); });
+  roots.forEach(root => { cursor = place(root.id, cursor, null); });
+  graph.nodes.filter(node => !visited.has(node.id)).forEach(node => { cursor = place(node.id, cursor, null); });
 
+  // Centralização geral do grafo inteiro na tela
   if (positions.size > 0) {
     const center = [...positions.values()].reduce((sum, position) => sum + position.x, 0) / positions.size;
-    positions.forEach(position => { position.x -= center; });
+    positions.forEach(position => {
+      position.x -= center;
+    });
   }
+  
   return positions;
 }
 
