@@ -122,7 +122,7 @@ function textLines(text, maxChars = 31) {
     if (line) lines.push(line);
     else lines.push('');
   });
-  return lines.slice(0, 7);
+  return lines;
 }
 
 function layoutGraph() {
@@ -133,7 +133,7 @@ function layoutGraph() {
     children.get(edge.from)?.push(edge.to);
   });
   const gapX = 70;
-  const gapY = 190;
+  const gapY = 220;
   const nodeW = 238;
   const positions = new Map();
   const roots = graph.nodes.filter(node => !(incoming.get(node.id) || []).length);
@@ -152,7 +152,7 @@ function layoutGraph() {
     visited.add(id);
     const node = graph.nodes.find(item => item.id === id);
     const lines = textLines(node.label);
-    const height = Math.max(54, lines.length * 16 + 23);
+    const height = Math.max(54, lines.length * 18 + 20);
     const branches = (children.get(id) || []).filter(child => !visited.has(child));
     const width = Math.max(1, branches.reduce((total, child) => total + measure(child), 0));
     const childStart = branches.length ? left : left + 0.5;
@@ -254,7 +254,7 @@ function render() {
     p.lines.forEach((line, i) => {
       const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
       text.setAttribute('x', p.width / 2);
-      text.setAttribute('y', 21 + i * 16);
+      text.setAttribute('y', 21 + i * 18);
       text.setAttribute('text-anchor', 'middle');
       text.textContent = line;
       group.append(text);
@@ -264,20 +264,10 @@ function render() {
       if (!tooltip) return;
       tooltip.textContent = node.label;
       tooltip.style.display = 'block';
-      const ctm = group.getScreenCTM();
-      if (!ctm) return;
-      const scaledWidth = 238 * ctm.a;
-      const scaledHeight = 54 * ctm.d;
-      const gap = 4;
-      const nodeRightEdge = ctm.e + scaledWidth;
-      let left = nodeRightEdge + gap + 200 <= window.innerWidth ? nodeRightEdge + gap : ctm.e - 200 - gap;
-      left = Math.max(4, Math.min(left, window.innerWidth - 200 - 4));
-      const nodeVerticalCenter = ctm.f + scaledHeight / 2;
-      const tooltipHeight = 60;
-      const idealTop = nodeVerticalCenter - tooltipHeight / 2;
-      const top = Math.max(4, Math.min(idealTop, window.innerHeight - tooltipHeight - 4));
-      tooltip.style.left = `${left}px`;
-      tooltip.style.top = `${top}px`;
+
+      const rectEl = rect.getBoundingClientRect();
+      tooltip.style.left = `${rectEl.right}px`;
+      tooltip.style.top = `${rectEl.top - tooltip.offsetHeight}px`;
     });
     group.addEventListener('mouseleave', () => { if (tooltip) tooltip.style.display = 'none'; });
     nodeLayer.append(group);
@@ -329,7 +319,6 @@ function applyTransform() {
     view.y = 0;
   } else if (canvas) {
     const rect = canvas.getBoundingClientRect();
-    // Calcula o limite máximo de deslocamento para que o gráfico não saia da tela
     const maxX = ((view.scale - 1) * rect.width) / 2;
     const maxY = ((view.scale - 1) * rect.height) / 2;
 
