@@ -319,14 +319,15 @@ function applyTransform() {
     view.y = 0;
   } else if (canvas) {
     const rect = canvas.getBoundingClientRect();
-    const maxX = ((view.scale - 1) * rect.width) / 2;
-    const maxY = ((view.scale - 1) * rect.height) / 2;
+    // Limites generosos baseados no tamanho da tela multiplicados pelo zoom
+    const limitX = rect.width * view.scale;
+    const limitY = rect.height * view.scale;
 
-    view.x = Math.max(-maxX, Math.min(maxX, view.x));
-    view.y = Math.max(-maxY, Math.min(maxY, view.y));
+    view.x = Math.max(-limitX, Math.min(rect.width, view.x));
+    view.y = Math.max(-limitY, Math.min(rect.height, view.y));
   }
 
-  mainSvg.style.transformOrigin = 'center center';
+  mainSvg.style.transformOrigin = '0 0';
   mainSvg.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
 
   const label = document.querySelector('#zoomLabel');
