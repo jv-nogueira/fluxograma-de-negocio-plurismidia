@@ -1,14 +1,14 @@
 :root {
-  --ink: #15231f;
-  --muted: #68736e;
-  --paper: #f5f6f1;
-  --panel: #ffffff;
-  --line: #d9dfd8;
+  --ink: #e8edf0;
+  --muted: #9aa7ad;
+  --paper: #111416;
+  --panel: #171a1c;
+  --line: #30383c;
   --teal: #087f73;
-  --teal-soft: #d9f1eb;
+  --teal-soft: #153b4b;
   --coral: #e06c50;
   --yellow: #f3c969;
-  --shadow: 0 18px 48px rgba(23, 52, 43, 0.1);
+  --shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
 }
 * {
   box-sizing: border-box;
@@ -86,24 +86,29 @@ body {
 }
 .controls {
   display: flex;
-  align-items: flex-end;
-  gap: 10px;
-  padding: 12px 0;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+  padding: 8px 0;
   flex-shrink: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 .mode-toggle {
   display: flex;
-  gap: 6px;
-  background: var(--line);
+  gap: 4px;
+  background: #202527;
+  border: 1px solid #30383c;
   border-radius: 7px;
-  padding: 4px;
+  padding: 3px;
+  flex-shrink: 0;
 }
 .mode-btn {
-  height: 34px;
+  height: 32px;
   border: 0;
   border-radius: 5px;
-  padding: 0 16px;
-  color: var(--muted);
+  padding: 0 12px;
+  color: #9aa7ad;
   background: transparent;
   font:
     700 12px Manrope,
@@ -113,105 +118,115 @@ body {
   transition: all 0.15s;
 }
 .mode-btn:hover {
-  color: var(--ink);
-  background: var(--panel);
+  color: #e8edf0;
+  background: rgba(255, 255, 255, 0.08);
 }
 .mode-btn.active {
   color: #fff;
-  background: var(--teal);
+  background: #087fbd;
 }
 .url-field {
-  flex: 1;
-  min-width: 220px;
+  flex: 0.7 1 160px;
+  min-width: 130px;
+  max-width: 230px;
 }
 .url-field span {
   display: block;
-  margin-bottom: 7px;
-  color: var(--muted);
-  font-size: 11px;
+  margin-bottom: 3px;
+  color: #9aa7ad;
+  font-size: 10px;
   font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .url-field input,
 .search-field input {
   width: 100%;
-  height: 42px;
-  padding: 0 13px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  color: var(--ink);
-  background: var(--panel);
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid #30383c;
+  border-radius: 6px;
+  color: #e8edf0;
+  background: #171a1c;
   font:
-    12px "DM Mono",
+    11px "DM Mono",
     monospace;
   outline: none;
 }
 .url-field input:focus,
 .search-field input:focus {
-  border-color: var(--teal);
-  box-shadow: 0 0 0 3px var(--teal-soft);
+  border-color: #00a4df;
+  box-shadow: 0 0 0 2px rgba(0, 164, 223, 0.25);
 }
 .primary {
-  height: 42px;
+  height: 34px;
   border: 0;
-  border-radius: 7px;
-  padding: 0 17px;
+  border-radius: 6px;
+  padding: 0 14px;
   color: #fff;
-  background: var(--ink);
+  background: #087fbd;
   font:
     700 12px Manrope,
     sans-serif;
   cursor: pointer;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 .primary:hover {
-  background: var(--teal);
+  background: #0b9edb;
 }
 .fit-button {
   height: 34px;
   border: 0;
   border-radius: 5px;
-  padding: 0 10px;
-  color: var(--teal);
-  background: var(--teal-soft);
+  padding: 0 9px;
+  color: #8bd6f4;
+  background: #153b4b;
   font:
     700 11px Manrope,
     sans-serif;
   cursor: pointer;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 .search-field {
   display: flex;
   align-items: center;
-  width: 190px;
+  width: 160px;
+  flex-shrink: 0;
   position: relative;
 }
 .search-field span {
   position: absolute;
-  left: 12px;
+  left: 9px;
   z-index: 1;
-  color: var(--teal);
-  font-size: 20px;
+  color: #00a4df;
+  font-size: 16px;
 }
 .search-field input {
-  padding-left: 32px;
+  padding-left: 28px;
 }
 .stats {
   display: flex;
-  gap: 26px;
+  gap: 14px;
   margin-left: auto;
+  flex-shrink: 0;
 }
 .stats div {
-  min-width: 62px;
+  min-width: 48px;
   border-left: 2px solid var(--coral);
-  padding-left: 12px;
+  padding-left: 8px;
 }
 .stats strong {
   display: block;
-  font-size: 25px;
+  font-size: 20px;
   line-height: 1;
+  color: #e8edf0;
+  font-weight: 800;
 }
 .stats span {
-  color: var(--muted);
+  color: #9aa7ad;
   font-size: 11px;
 }
 .diagram-shell {
@@ -243,21 +258,29 @@ body {
 }
 .swatch {
   display: inline-block;
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 3px;
-  background: var(--teal);
+  background: #153f50;
+  border: 1.5px solid #16a9df;
+  box-sizing: border-box;
 }
-.swatch.question {
-  background: var(--yellow);
+.swatch.root {
+  background: #153f50;
+  border: 1.5px solid #16a9df;
 }
 .swatch.action {
-  background: var(--coral);
+  background: #4a3814;
+  border: 1.5px solid #f3c969;
+}
+.swatch.question {
+  background: #48261f;
+  border: 1.5px solid #e06c50;
 }
 .line-swatch {
   width: 18px;
-  height: 1px;
-  background: var(--muted);
+  height: 2px;
+  background: #00a4df;
 }
 .canvas-wrap {
   height: 100%;
@@ -434,24 +457,6 @@ body {
   transform: translate(-50%, 0);
 }
 @media (max-width: 850px) {
-  .controls {
-    align-items: stretch;
-    flex-wrap: wrap;
-  }
-  .mode-toggle {
-    flex-basis: 100%;
-    justify-content: center;
-  }
-  .url-field {
-    flex-basis: 100%;
-  }
-  .search-field {
-    flex: 1;
-    width: auto;
-  }
-  .view-actions {
-    margin-left: auto;
-  }
   .stats {
     display: none;
   }
@@ -464,63 +469,49 @@ body {
   .status {
     font-size: 9px;
   }
-  .workspace {
-    padding: 0 15px;
-  }
-  .primary {
-    flex: 1;
-  }
-  .search-field {
-    flex-basis: 100%;
-  }
-  .view-actions {
-    margin-left: 0;
-  }
   .legend {
     max-width: 270px;
   }
-  .details {
-    top: 75px;
-    right: 12px;
-    width: calc(100vw - 24px);
-  }
 }
 .view-actions {
-  height: 50px;
+  display: flex;
+  align-items: center;
+  height: 42px;
   gap: 3px;
-  padding: 4px;
+  padding: 3px;
   border-radius: 8px;
+  flex-shrink: 0;
 }
 .icon-button,
 .zoom-label {
-  height: 40px;
-  min-width: 40px;
+  height: 34px;
+  min-width: 34px;
   border-radius: 6px;
   background: #2a3135;
 }
 .icon-button {
-  font-size: 28px;
+  font-size: 22px;
   line-height: 1;
 }
 .icon-button:hover,
 .zoom-label:hover {
-  color: var(--teal);
-  background: var(--teal-soft);
+  color: #00a4df;
+  background: #153b4b;
 }
 .zoom-label {
-  min-width: 62px;
-  padding: 0 7px;
-  font-size: 12px;
+  min-width: 50px;
+  padding: 0 5px;
+  font-size: 11px;
   cursor: pointer;
 }
 .zoom-input {
-  width: 56px;
-  height: 32px;
+  width: 48px;
+  height: 28px;
   border: 0;
   border-radius: 4px;
   text-align: center;
   font:
-    500 12px "DM Mono",
+    500 11px "DM Mono",
     monospace;
   color: #e8edf0;
   background: #1a1e21;
@@ -532,9 +523,9 @@ body {
   margin: 0;
 }
 .fit-button {
-  height: 40px;
-  margin-left: 3px;
-  padding: 0 12px;
+  height: 34px;
+  margin-left: 2px;
+  padding: 0 10px;
 }
 .node text {
   font-size: 13px;
@@ -872,8 +863,8 @@ body {
 
 .print-button,
 .export-button {
-  height: 40px;
-  padding: 0 10px;
+  height: 34px;
+  padding: 0 9px;
   background: #1c272c;
   color: #8bd6f4;
   border: 1px solid #303e45;
