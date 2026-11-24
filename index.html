@@ -34,8 +34,9 @@
         id="sidebarFilters"
         aria-label="Filtro de Categorias"
       >
-        <div class="sidebar-header">
+        <div class="sidebar-header" id="sidebarToggle" role="button" tabindex="0" title="Recolher / Expandir categorias">
           <h3>Categorias do Fluxo</h3>
+          <span class="sidebar-toggle-icon" id="sidebarToggleIcon" aria-hidden="true">◀</span>
         </div>
         <div class="sidebar-content" id="filterTree"></div>
       </aside>
@@ -125,6 +126,29 @@
             >
               Enquadrar
             </button>
+            <button
+              class="fit-button print-button"
+              id="printButton"
+              title="Imprimir ou Salvar em PDF"
+            >
+              Imprimir / PDF
+            </button>
+            <div class="export-actions">
+              <button
+                class="fit-button export-button"
+                id="exportPngButton"
+                title="Exportar imagem PNG de alta resolução"
+              >
+                PNG
+              </button>
+              <button
+                class="fit-button export-button"
+                id="exportSvgButton"
+                title="Exportar vetor SVG"
+              >
+                SVG
+              </button>
+            </div>
           </div>
           <div class="stats" aria-live="polite">
             <div><strong id="nodeCount">--</strong><span>nós</span></div>

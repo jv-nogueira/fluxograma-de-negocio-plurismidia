@@ -383,6 +383,16 @@ function render() {
 function positionDetails() {
   if (!selectedNodeElement || !details || !details.classList.contains("open"))
     return;
+
+  // No mobile, o CSS fixa o bottom sheet, limpamos inline styles que possam atrapalhar
+  if (window.innerWidth <= 768) {
+    details.style.left = "";
+    details.style.right = "";
+    details.style.top = "";
+    details.style.bottom = "";
+    return;
+  }
+
   const ctm = selectedNodeElement.getScreenCTM();
   if (!ctm) return;
   const nodeWidth = 238;
@@ -401,6 +411,7 @@ function positionDetails() {
   details.style.left = `${Math.max(16, Math.min(left, window.innerWidth - panel.width - 16))}px`;
   details.style.right = "auto";
   details.style.top = `${top}px`;
+  details.style.bottom = "auto";
 }
 
 function selectNode(id, element) {
@@ -573,6 +584,168 @@ document
   .querySelector("#modeIdeal")
   ?.addEventListener("click", () => switchMode("ideal"));
 
+// Toggle Sidebar Retrátil
+function setupSidebarToggle() {
+  const sidebar = document.getElementById("sidebarFilters");
+  const header = document.querySelector(".sidebar-header");
+  const icon = document.getElementById("sidebarToggleIcon");
+  if (!sidebar || !header) return;
+
+  // Iniciar recolhido por padrão em telas mobile se não definido
+  if (window.innerWidth <= 768 && !sidebar.classList.contains("collapsed")) {
+    sidebar.classList.add("collapsed");
+    if (icon) icon.textContent = "▶";
+  }
+
+  const toggle = () => {
+    const isCollapsed = sidebar.classList.toggle("collapsed");
+    if (icon) {
+      icon.textContent = isCollapsed ? "▶" : "◀";
+    }
+  };
+
+  header.onclick = toggle;
+  header.onkeydown = (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggle();
+    }
+  };
+
+  sidebar.addEventListener("transitionend", (e) => {
+    if (e.propertyName === "width" || e.propertyName === "max-height" || e.propertyName === "height") {
+      fit();
+    }
+  });
+}
+
+// 2. Impressão / PDF
+function printDiagram() {
+  fit();
+  setTimeout(() => {
+    window.print();
+  }, 100);
+}
+document.querySelector("#printButton")?.addEventListener("click", printDiagram);
+
+// 3. Exportação de SVG e PNG
+function getInlinedSvgString() {
+  if (!mainSvg) return null;
+  const clone = mainSvg.cloneNode(true);
+
+  // Resetar zoom/pan do clone
+  clone.style.transform = "none";
+  clone.style.transformOrigin = "initial";
+
+  // Incluir estilos necessários inline
+  const styleEl = document.createElementNS("http://www.w3.org/2000/svg", "style");
+  styleEl.textContent = `
+    .node rect { stroke-width: 1.5; }
+    .node text { font-family: 'Manrope', -apple-system, sans-serif; font-size: 13px; font-weight: 800; fill: #edf2f4; }
+    .node.root rect { fill: #153f50; stroke: #16a9df; }
+    .node.action rect { fill: #4a3814; stroke: #f3c969; }
+    .node.question rect { fill: #48261f; stroke: #e06c50; }
+    .edge { fill: none; stroke: #00a4df; stroke-width: 1.5; }
+    .edge-label { fill: #d4eaf2; font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 700; paint-order: stroke; stroke: #111416; stroke-width: 5px; stroke-linejoin: round; }
+  `;
+  clone.insertBefore(styleEl, clone.firstChild);
+
+  // Adicionar retângulo de fundo escuro para PNG/SVG stand-alone
+  const bgRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  bgRect.setAttribute("width", "100%");
+  bgRect.setAttribute("height", "100%");
+  bgRect.setAttribute("fill", "#111416");
+  
+  const viewBox = clone.getAttribute("viewBox");
+  if (viewBox) {
+    const [vx, vy, vw, vh] = viewBox.split(" ").map(Number);
+    bgRect.setAttribute("x", vx);
+    bgRect.setAttribute("y", vy);
+    bgRect.setAttribute("width", vw);
+    bgRect.setAttribute("height", vh);
+  }
+  clone.insertBefore(bgRect, styleEl.nextSibling);
+
+  const serializer = new XMLSerializer();
+  return {
+    svgString: serializer.serializeToString(clone),
+    viewBox: viewBox ? viewBox.split(" ").map(Number) : null,
+  };
+}
+
+function exportSvg() {
+  const result = getInlinedSvgString();
+  if (!result) {
+    showToast("Nenhum diagrama disponível para exportação.");
+    return;
+  }
+  const blob = new Blob([result.svgString], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `fluxograma-${currentMode}-${Date.now()}.svg`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast("SVG exportado com sucesso!");
+}
+
+function exportPng() {
+  const result = getInlinedSvgString();
+  if (!result || !result.viewBox) {
+    showToast("Nenhum diagrama disponível para exportação.");
+    return;
+  }
+  const [, , vbWidth, vbHeight] = result.viewBox;
+  const scaleFactor = 3; // 3x para alta resolução
+  const canvasWidth = vbWidth * scaleFactor;
+  const canvasHeight = vbHeight * scaleFactor;
+
+  const canvasEl = document.createElement("canvas");
+  canvasEl.width = canvasWidth;
+  canvasEl.height = canvasHeight;
+  const ctx = canvasEl.getContext("2d");
+
+  const img = new Image();
+  const svgBlob = new Blob([result.svgString], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(svgBlob);
+
+  img.onload = () => {
+    // Fundo escuro base
+    ctx.fillStyle = "#111416";
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+    URL.revokeObjectURL(url);
+
+    canvasEl.toBlob((blob) => {
+      if (!blob) {
+        showToast("Erro ao gerar imagem PNG.");
+        return;
+      }
+      const pngUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = pngUrl;
+      a.download = `fluxograma-${currentMode}-${Date.now()}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(pngUrl);
+      showToast("PNG em alta resolução exportado!");
+    }, "image/png");
+  };
+
+  img.onerror = () => {
+    URL.revokeObjectURL(url);
+    showToast("Falha ao renderizar SVG para imagem PNG.");
+  };
+
+  img.src = url;
+}
+
+document.querySelector("#exportSvgButton")?.addEventListener("click", exportSvg);
+document.querySelector("#exportPngButton")?.addEventListener("click", exportPng);
+
 if (searchInput) {
   searchInput.addEventListener("input", (event) => {
     const query = event.target.value.toLowerCase();
@@ -741,6 +914,7 @@ if (canvas) {
 }
 
 loadCsv(ATUAL_URL);
+setupSidebarToggle();
 
 function ensureSidebarDOM() {
   let sidebar = document.getElementById("sidebarFilters");
@@ -760,14 +934,16 @@ function ensureSidebarDOM() {
       sidebar.id = "sidebarFilters";
       sidebar.setAttribute("aria-label", "Filtro de Categorias");
       sidebar.innerHTML = `
-        <div class="sidebar-header">
+        <div class="sidebar-header" id="sidebarToggle" role="button" tabindex="0" title="Recolher / Expandir categorias">
           <h3>Categorias do Fluxo</h3>
+          <span class="sidebar-toggle-icon" id="sidebarToggleIcon" aria-hidden="true">◀</span>
         </div>
         <div class="sidebar-content" id="filterTree"></div>
       `;
       wrapper.insertBefore(sidebar, workspace);
     }
   }
+  setupSidebarToggle();
 }
 
 function buildFilterTree(nodes, edges) {
