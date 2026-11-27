@@ -101,7 +101,7 @@ function getEdgeLabel(label) {
 }
 
 function makeGraph(rows) {
-  const nodes = rows
+  const baseNodes = rows
     .filter((row) => row.id && row.fluxo)
     .map((row) => ({
       id: row.id,
@@ -109,14 +109,107 @@ function makeGraph(rows) {
       row,
     }));
 
-  const ids = new Set(nodes.map((node) => node.id));
+  const validIds = new Set(baseNodes.map((n) => n.id));
+  const childrenMap = new Map();
+
+  baseNodes.forEach((node) => {
+    const parents = [
+      ...new Set(
+        String(node.row.pai || "")
+          .split(",")
+          .map((p) => p.trim())
+          .filter((p) => p && validIds.has(p)),
+      ),
+    ];
+    parents.forEach((parentId) => {
+      if (!childrenMap.has(parentId)) childrenMap.set(parentId, []);
+      childrenMap.get(parentId).push(node);
+    });
+  });
+
+  const nodes = [];
   const edges = [];
 
-  nodes.forEach((node) => {
-    const from = node.row.pai;
-    if (from && ids.has(from)) {
-      const label = getEdgeLabel(node.row.fluxo);
-      edges.push({ from, to: node.id, label });
+  function cloneChain(startNode, parentId, suffix, visited = new Set()) {
+    if (visited.has(startNode.id)) return;
+    const nextVisited = new Set(visited);
+    nextVisited.add(startNode.id);
+
+    const clonedId = `${startNode.id}__${suffix}`;
+    nodes.push({
+      id: clonedId,
+      label: startNode.label,
+      row: startNode.row,
+    });
+
+    edges.push({
+      from: parentId,
+      to: clonedId,
+      label: getEdgeLabel(startNode.row.fluxo),
+    });
+
+    const nextChildren = childrenMap.get(startNode.id) || [];
+    nextChildren.forEach((child) => {
+      cloneChain(child, clonedId, suffix, nextVisited);
+    });
+  }
+
+  baseNodes.forEach((node) => {
+    const parents = [
+      ...new Set(
+        String(node.row.pai || "")
+          .split(",")
+          .map((p) => p.trim())
+          .filter((p) => p && validIds.has(p)),
+      ),
+    ];
+
+    if (parents.length <= 1) {
+      nodes.push({
+        id: node.id,
+        label: node.label,
+        row: node.row,
+      });
+      if (parents.length === 1) {
+        edges.push({
+          from: parents[0],
+          to: node.id,
+          label: getEdgeLabel(node.row.fluxo),
+        });
+      }
+    } else {
+      // Primeiro pai mantém o ID original do nó; demais pais repetem o card e os seguintes
+      const [firstParent, ...extraParents] = parents;
+      nodes.push({
+        id: node.id,
+        label: node.label,
+        row: node.row,
+      });
+      edges.push({
+        from: firstParent,
+        to: node.id,
+        label: getEdgeLabel(node.row.fluxo),
+      });
+
+      extraParents.forEach((extraParent) => {
+        const suffix = `p${extraParent}`;
+        const clonedId = `${node.id}__${suffix}`;
+        nodes.push({
+          id: clonedId,
+          label: node.label,
+          row: node.row,
+        });
+        edges.push({
+          from: extraParent,
+          to: clonedId,
+          label: getEdgeLabel(node.row.fluxo),
+        });
+
+        const nextChildren = childrenMap.get(node.id) || [];
+        nextChildren.forEach((child) => {
+          cloneChain(child, clonedId, suffix, new Set([node.id]));
+        });
+      });
     }
   });
 
@@ -153,7 +246,7 @@ function layoutGraph() {
   });
 
   const gapX = 70;
-  const MIN_GAP_Y = 80; // Distância fixa mantida estritamente entre o Pai e o Filho
+  const MIN_GAP_Y = 80;
   const nodeW = 238;
   const positions = new Map();
   const roots = graph.nodes.filter(
@@ -161,7 +254,6 @@ function layoutGraph() {
   );
   const visited = new Set();
 
-  // Função auxiliar para calcular a largura em subárvore (colunas no eixo X)
   const measure = (id, stack = new Set()) => {
     if (stack.has(id)) return 1;
     const nextStack = new Set(stack);
@@ -174,12 +266,12 @@ function layoutGraph() {
       : 1;
   };
 
-  // Algoritmo de posicionamento focado no fluxo direto Pai -> Filho
   const place = (id, left, parentPos = null, stack = new Set()) => {
     if (stack.has(id) || visited.has(id)) return left;
     visited.add(id);
 
     const node = graph.nodes.find((item) => item.id === id);
+    if (!node) return left;
     const lines = textLines(node.label);
     const height = Math.max(54, lines.length * 18 + 20);
 
@@ -191,17 +283,12 @@ function layoutGraph() {
       branches.reduce((total, child) => total + measure(child), 0),
     );
 
-    // Cálculo do Y baseado APENAS no pai direto deste nó
     let y = 0;
     if (parentPos) {
-      // Borda inferior do pai
       const parentBottom = parentPos.y + parentPos.height / 2;
-      // O topo deste nó fica exatamente MIN_GAP_Y (80px) abaixo do pai
       const nodeTop = parentBottom + MIN_GAP_Y;
-      // Define o centro Y para renderização no SVG
       y = nodeTop + height / 2;
     } else {
-      // Nó Raiz (primeira linha)
       y = height / 2;
     }
 
@@ -211,14 +298,12 @@ function layoutGraph() {
     const childStart = branches.length ? left : left + 0.5;
     let childCursor = childStart;
 
-    // Posiciona os filhos diretamente relacionados
     branches.forEach((child) => {
       const childWidth = measure(child);
       place(child, childCursor, currentPos, new Set([...stack, id]));
       childCursor += childWidth;
     });
 
-    // Centraliza o pai horizontalmente (X) sobre o grupo dos seus filhos
     const center = branches.length ? (childStart + childCursor - 1) / 2 : left;
     currentPos.x = center * (nodeW + gapX);
 
@@ -235,7 +320,6 @@ function layoutGraph() {
       cursor = place(node.id, cursor, null);
     });
 
-  // Centralização geral do grafo inteiro na tela
   if (positions.size > 0) {
     const center =
       [...positions.values()].reduce((sum, position) => sum + position.x, 0) /
@@ -262,8 +346,8 @@ function fit() {
   const margin = 60;
   const vbX = minX - margin;
   const vbY = minY - margin;
-  const vbW = maxX - minX + margin * 2;
-  const vbH = maxY - minY + margin * 2;
+  const vbW = Math.max(100, maxX - minX + margin * 2);
+  const vbH = Math.max(100, maxY - minY + margin * 2);
 
   mainSvg.setAttribute("viewBox", `${vbX} ${vbY} ${vbW} ${vbH}`);
   view.scale = 1;
@@ -384,7 +468,6 @@ function positionDetails() {
   if (!selectedNodeElement || !details || !details.classList.contains("open"))
     return;
 
-  // No mobile, o CSS fixa o bottom sheet, limpamos inline styles que possam atrapalhar
   if (window.innerWidth <= 768) {
     details.style.left = "";
     details.style.right = "";
@@ -447,7 +530,6 @@ function applyTransform() {
     view.y = 0;
   } else if (canvas) {
     const rect = canvas.getBoundingClientRect();
-    // Limites generosos baseados no tamanho da tela multiplicados pelo zoom
     const limitX = rect.width * view.scale;
     const limitY = rect.height * view.scale;
 
@@ -584,14 +666,12 @@ document
   .querySelector("#modeIdeal")
   ?.addEventListener("click", () => switchMode("ideal"));
 
-// Toggle Sidebar Retrátil
 function setupSidebarToggle() {
   const sidebar = document.getElementById("sidebarFilters");
   const header = document.querySelector(".sidebar-header");
   const icon = document.getElementById("sidebarToggleIcon");
   if (!sidebar || !header) return;
 
-  // Iniciar recolhido por padrão em telas mobile se não definido
   if (window.innerWidth <= 768 && !sidebar.classList.contains("collapsed")) {
     sidebar.classList.add("collapsed");
     if (icon) icon.textContent = "▶";
@@ -613,13 +693,16 @@ function setupSidebarToggle() {
   };
 
   sidebar.addEventListener("transitionend", (e) => {
-    if (e.propertyName === "width" || e.propertyName === "max-height" || e.propertyName === "height") {
+    if (
+      e.propertyName === "width" ||
+      e.propertyName === "max-height" ||
+      e.propertyName === "height"
+    ) {
       fit();
     }
   });
 }
 
-// 2. Impressão / PDF
 function printDiagram() {
   fit();
   setTimeout(() => {
@@ -628,16 +711,13 @@ function printDiagram() {
 }
 document.querySelector("#printButton")?.addEventListener("click", printDiagram);
 
-// 3. Exportação de SVG e PNG
 function getInlinedSvgString() {
   if (!mainSvg) return null;
   const clone = mainSvg.cloneNode(true);
 
-  // Resetar zoom/pan do clone
   clone.style.transform = "none";
   clone.style.transformOrigin = "initial";
 
-  // Incluir estilos necessários inline
   const styleEl = document.createElementNS("http://www.w3.org/2000/svg", "style");
   styleEl.textContent = `
     .node rect { stroke-width: 1.5; }
@@ -650,12 +730,11 @@ function getInlinedSvgString() {
   `;
   clone.insertBefore(styleEl, clone.firstChild);
 
-  // Adicionar retângulo de fundo escuro para PNG/SVG stand-alone
   const bgRect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
   bgRect.setAttribute("width", "100%");
   bgRect.setAttribute("height", "100%");
   bgRect.setAttribute("fill", "#111416");
-  
+
   const viewBox = clone.getAttribute("viewBox");
   if (viewBox) {
     const [vx, vy, vw, vh] = viewBox.split(" ").map(Number);
@@ -679,7 +758,9 @@ function exportSvg() {
     showToast("Nenhum diagrama disponível para exportação.");
     return;
   }
-  const blob = new Blob([result.svgString], { type: "image/svg+xml;charset=utf-8" });
+  const blob = new Blob([result.svgString], {
+    type: "image/svg+xml;charset=utf-8",
+  });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -698,7 +779,7 @@ function exportPng() {
     return;
   }
   const [, , vbWidth, vbHeight] = result.viewBox;
-  const scaleFactor = 3; // 3x para alta resolução
+  const scaleFactor = 3;
   const canvasWidth = vbWidth * scaleFactor;
   const canvasHeight = vbHeight * scaleFactor;
 
@@ -708,11 +789,12 @@ function exportPng() {
   const ctx = canvasEl.getContext("2d");
 
   const img = new Image();
-  const svgBlob = new Blob([result.svgString], { type: "image/svg+xml;charset=utf-8" });
+  const svgBlob = new Blob([result.svgString], {
+    type: "image/svg+xml;charset=utf-8",
+  });
   const url = URL.createObjectURL(svgBlob);
 
   img.onload = () => {
-    // Fundo escuro base
     ctx.fillStyle = "#111416";
     ctx.fillRect(0, 0, canvasWidth, canvasHeight);
     ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
@@ -952,14 +1034,18 @@ function buildFilterTree(nodes, edges) {
   if (!treeContainer) return;
   treeContainer.innerHTML = "";
 
-  // Map children for graph traversal
+  // Filtra nós originais (sem sufixo de clone) para a árvore lateral não duplicar categorias
+  const treeNodes = nodes.filter((n) => !String(n.id).includes("__"));
+  const treeEdges = edges.filter(
+    (e) => !String(e.from).includes("__") && !String(e.to).includes("__"),
+  );
+
   const childrenMap = new Map();
-  edges.forEach((edge) => {
+  treeEdges.forEach((edge) => {
     if (!childrenMap.has(edge.from)) childrenMap.set(edge.from, []);
     childrenMap.get(edge.from).push(edge.to);
   });
 
-  // Get all descendants of a given node
   function getSubtree(rootId) {
     const set = new Set();
     function dfs(id) {
@@ -970,12 +1056,17 @@ function buildFilterTree(nodes, edges) {
       });
     }
     dfs(rootId);
-    return set;
+    // Inclui também qualquer nó clonado correspondente aos IDs base incluídos
+    const expanded = new Set(set);
+    nodes.forEach((n) => {
+      const baseId = String(n.id).split("__")[0];
+      if (set.has(baseId)) expanded.add(n.id);
+    });
+    return expanded;
   }
 
-  // Find Level 1 roots
-  const incoming = new Set(edges.map((e) => e.to));
-  const l1Nodes = nodes.filter((n) => !incoming.has(n.id));
+  const incoming = new Set(treeEdges.map((e) => e.to));
+  const l1Nodes = treeNodes.filter((n) => !incoming.has(n.id));
 
   const l1Registry = [];
   const l2Registry = [];
@@ -984,14 +1075,12 @@ function buildFilterTree(nodes, edges) {
   function applyFilter() {
     const visibleIds = new Set();
 
-    // 1. Add all nodes belonging to checked Level 3 trees
     l3Registry.forEach(({ cb, subtree }) => {
       if (cb.checked) {
         subtree.forEach((id) => visibleIds.add(id));
       }
     });
 
-    // 2. Add checked Level 2 category nodes if any of their sub-trees are visible
     l2Registry.forEach(({ id, cb, l3List }) => {
       const hasVisibleChild = l3List.some((l3) => l3.cb.checked);
       if (cb.checked && hasVisibleChild) {
@@ -999,7 +1088,6 @@ function buildFilterTree(nodes, edges) {
       }
     });
 
-    // 3. Add checked Level 1 root nodes if any of their categories are visible
     l1Registry.forEach(({ id, cb, l2List }) => {
       const hasVisibleL2 = l2List.some((l2) => visibleIds.has(l2.id));
       if (cb.checked && hasVisibleL2) {
@@ -1007,13 +1095,11 @@ function buildFilterTree(nodes, edges) {
       }
     });
 
-    // Update active graph
     graph.nodes = fullGraph.nodes.filter((n) => visibleIds.has(n.id));
     graph.edges = fullGraph.edges.filter(
       (e) => visibleIds.has(e.from) && visibleIds.has(e.to),
     );
 
-    // Update counters
     const nodeCount = document.querySelector("#nodeCount");
     const edgeCount = document.querySelector("#edgeCount");
     if (nodeCount) nodeCount.textContent = graph.nodes.length;
@@ -1067,15 +1153,14 @@ function buildFilterTree(nodes, edges) {
     };
     l1Registry.push(l1RegEntry);
 
-    // Level 2 categories
     const l2Ids = childrenMap.get(l1Node.id) || [];
     const l2Nodes = l2Ids
-      .map((id) => nodes.find((n) => n.id === id))
+      .map((id) => treeNodes.find((n) => n.id === id))
       .filter(Boolean);
 
     l2Nodes.forEach((l2Node) => {
       const l2Item = document.createElement("div");
-      l2Item.className = "filter-node level-2"; // Collapsed by default
+      l2Item.className = "filter-node level-2";
 
       const l2Row = document.createElement("div");
       l2Row.className = "filter-row";
@@ -1119,10 +1204,9 @@ function buildFilterTree(nodes, edges) {
       l1RegEntry.l2List.push(l2RegEntry);
       l2Registry.push(l2RegEntry);
 
-      // Level 3 sub-flow trees
       const l3Ids = childrenMap.get(l2Node.id) || [];
       const l3Nodes = l3Ids
-        .map((id) => nodes.find((n) => n.id === id))
+        .map((id) => treeNodes.find((n) => n.id === id))
         .filter(Boolean);
 
       if (!l3Nodes.length) {
@@ -1166,7 +1250,6 @@ function buildFilterTree(nodes, edges) {
         l2RegEntry.l3List.push(l3RegEntry);
         l3Registry.push(l3RegEntry);
 
-        // Checkbox change for Level 3
         l3Cb.onchange = () => {
           const anyL3Checked = l2RegEntry.l3List.some((l) => l.cb.checked);
           l2RegEntry.cb.checked = anyL3Checked;
@@ -1180,7 +1263,6 @@ function buildFilterTree(nodes, edges) {
         l2ChildrenDiv.appendChild(l3Item);
       });
 
-      // Checkbox change for Level 2 (Folder)
       l2Cb.onchange = () => {
         const checked = l2Cb.checked;
         l2RegEntry.l3List.forEach((l3) => {
@@ -1197,7 +1279,6 @@ function buildFilterTree(nodes, edges) {
       l1ChildrenDiv.appendChild(l2Item);
     });
 
-    // Checkbox change for Level 1 (Root)
     l1Cb.onchange = () => {
       const checked = l1Cb.checked;
       l1RegEntry.l2List.forEach((l2) => {
